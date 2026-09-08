@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, degrees } from 'pdf-lib';
-import { classify, measureInk } from '../lib/pdf/detection.ts';
+import {
+  classify,
+  measureInk,
+  measureInteriorInk,
+  shouldRunOcr,
+} from '../lib/pdf/detection.ts';
 
 test('blank, sparse, stamp and real text remain distinct', () => {
   assert.equal(classify('', 0, 0.0015).kind, 'blank');
@@ -11,7 +16,7 @@ test('blank, sparse, stamp and real text remain distinct', () => {
     classify('EM BRANCO\nAssinatura: Maria', 0.01, 0.0015).kind,
     'content',
   );
-  assert.equal(classify('12345', 0.00001, 0.0015).kind, 'content');
+  assert.equal(classify('12345', 0.00001, 0.0015).kind, 'sparse');
   assert.equal(classify('EM BRANCO', 0.3, 0.0015).kind, 'content');
   assert.equal(classify('EM BRANCO', 0.01, 0.0015, 20).kind, 'content');
   assert.equal(classify('', 0.004, 0.0015).kind, 'content');
@@ -67,4 +72,25 @@ test('export worker merges, reorders, deletes, inserts and rotates without raste
     },
   });
   assert.ok(result.error);
+});
+
+test('stamps with numbering and mixed native text still receive OCR', () => {
+  assert.equal(shouldRunOcr('42', 0.01), true);
+  assert.equal(shouldRunOcr('Pág. 42\n', 0.01), true);
+  assert.equal(shouldRunOcr('A'.repeat(300), 0.01), false);
+  assert.equal(classify('EM BRANCO\nPág. 42', 0.01, 0.003).kind, 'stamp');
+  assert.equal(classify('EM BRANC0\n42', 0.01, 0.003).kind, 'stamp');
+  assert.equal(classify('EM BRANCO 42', 0.01, 0.003).kind, 'sparse');
+  assert.equal(classify('Valor total 12345', 0.00001, 0.003).kind, 'content');
+});
+test('scan-border exclusion retains central content and handles blank images', () => {
+  const w = 100,
+    h = 100,
+    data = new Uint8ClampedArray(w * h * 4).fill(255);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < 2; x++) data.set([0, 0, 0, 255], (y * w + x) * 4);
+  assert.ok(measureInk(data) > 0);
+  assert.equal(measureInteriorInk(data, w, h), 0);
+  data.set([0, 0, 0, 255], (50 * w + 50) * 4);
+  assert.ok(measureInteriorInk(data, w, h) > 0);
 });

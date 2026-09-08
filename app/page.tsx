@@ -21,6 +21,8 @@ import {
   LoaderCircle,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { parsePageSelection, formatPageSelection } from '@/lib/pdf/selection';
 import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
@@ -49,6 +51,10 @@ export default function Home() {
     [message, setMessage] = useState(''),
     [ocr, setOcr] = useState(true),
     [sensitive, setSensitive] = useState(false),
+    [ignoreBorders, setIgnoreBorders] = useState(true),
+    [range, setRange] = useState(''),
+    [rangeError, setRangeError] = useState(''),
+    [previewInfo, setPreviewInfo] = useState<PageItem['verdict']>(),
     [filter, setFilter] = useState(false),
     [dragOver, setDragOver] = useState(false),
     [preview, setPreview] = useState<string | null>(null),
@@ -63,6 +69,22 @@ export default function Home() {
       (p) => p.verdict && p.verdict.kind !== 'content',
     ),
     shown = filter ? candidates : pages;
+  const analyzedCount = pages.filter((p) => p.verdict).length;
+  const selectedNumbers = pages.flatMap((p, i) =>
+    selected.has(p.id) ? [i + 1] : [],
+  );
+  const applyRange = () => {
+    try {
+      const positions = parsePageSelection(range, pages.length);
+      setSelected(new Set(positions.map((n) => pages[n - 1].id)));
+      setRangeError('');
+      setMessage(
+        `${positions.length} páginas selecionadas: ${formatPageSelection(positions)}.`,
+      );
+    } catch (e) {
+      setRangeError(e instanceof Error ? e.message : 'Seleção inválida.');
+    }
+  };
   const update = (next: PageItem[]) => {
     setHistory((h) => [...h.slice(-19), pages]);
     setPages(next);
@@ -158,7 +180,7 @@ export default function Home() {
     try {
       const result = await analyze(
         pages,
-        { ocr, tolerance: sensitive ? 0.007 : 0.0015 },
+        { ocr, tolerance: sensitive ? 0.012 : 0.003, ignoreBorders },
         setBusy,
         cancel,
       );
@@ -169,7 +191,7 @@ export default function Home() {
           ? 'Análise interrompida. Os resultados já obtidos foram mantidos.'
           : result.failed
             ? `Análise visual concluída. O OCR falhou em ${result.failed} páginas; revise-as manualmente.`
-            : 'Análise concluída. Confira as sugestões antes de excluir.',
+            : `Análise concluída: ${result.pages.filter((p) => p.verdict?.kind !== 'content').length} sugestões em ${result.pages.length} páginas.`,
       );
     } catch (e) {
       setMessage(
@@ -203,6 +225,7 @@ export default function Home() {
     }
   }
   async function inspect(p: PageItem, i: number) {
+    setPreviewInfo(p.verdict);
     setPreviewTitle(`Página ${i + 1}`);
     setPreviewBusy(true);
     setPreview('');
@@ -400,7 +423,9 @@ export default function Home() {
                   <span>
                     {selected.size
                       ? `${selected.size} selecionadas`
-                      : 'Selecionar'}
+                      : filter
+                        ? 'Selecionar sugestões visíveis'
+                        : 'Selecionar todas'}
                   </span>
                 </label>
                 <div className="tool-actions">
@@ -427,6 +452,9 @@ export default function Home() {
                     onClick={remove}
                   >
                     <Trash2 size={17} />
+                    <span>
+                      Excluir{selected.size ? ` (${selected.size})` : ''}
+                    </span>
                   </button>
                   <span className="separator" />
                   <button
@@ -450,6 +478,94 @@ export default function Home() {
                     <span>Página vazia</span>
                   </button>
                 </div>
+              </div>
+              <div className="selection-panel">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    applyRange();
+                  }}
+                >
+                  <label htmlFor="page-ranges">Selecionar por número</label>
+                  <div className="range-controls">
+                    <Input
+                      id="page-ranges"
+                      placeholder="Ex.: 1, 3, 5–10"
+                      value={range}
+                      disabled={!!busy}
+                      onChange={(e) => {
+                        setRange(e.target.value);
+                        setRangeError('');
+                      }}
+                      aria-invalid={!!rangeError}
+                      aria-describedby="selection-help"
+                    />
+                    <button
+                      className="secondary"
+                      disabled={!!busy}
+                      type="submit"
+                    >
+                      Aplicar seleção
+                    </button>
+                  </div>
+                </form>
+                <p id="selection-help">
+                  Use os números na ordem atual. A seleção informada substitui a
+                  anterior.
+                </p>
+                {rangeError && (
+                  <p role="alert" className="range-error">
+                    {rangeError}
+                  </p>
+                )}
+                <div className="selection-readout">
+                  <span>
+                    {selected.size
+                      ? `${selected.size} de ${pages.length} páginas selecionadas: ${formatPageSelection(selectedNumbers)}`
+                      : 'Nenhuma página selecionada.'}
+                  </span>
+                  <button
+                    className="text-button"
+                    disabled={!selected.size || !!busy}
+                    onClick={() => setSelected(new Set())}
+                  >
+                    Limpar seleção
+                  </button>
+                </div>
+              </div>
+              <div className="analysis-overview" role="status">
+                <ScanLine size={22} />
+                <div>
+                  <strong>
+                    {analyzedCount
+                      ? `${candidates.length} sugestões · ${analyzedCount}/${pages.length} páginas analisadas`
+                      : 'Páginas ainda não analisadas'}
+                  </strong>
+                  <p>
+                    {!analyzedCount
+                      ? 'Clique em Analisar páginas para procurar páginas vazias e carimbos.'
+                      : !candidates.length
+                        ? 'Nenhuma sugestão encontrada. Experimente incluir pequenos detalhes e confira os motivos ao ampliar uma página.'
+                        : 'As sugestões estão marcadas nas miniaturas. Revise antes de excluir.'}
+                  </p>
+                </div>
+                <button
+                  className="secondary"
+                  disabled={!!busy}
+                  onClick={() =>
+                    analyzedCount && candidates.length
+                      ? setFilter(!filter)
+                      : void runAnalysis()
+                  }
+                >
+                  {analyzedCount && candidates.length
+                    ? filter
+                      ? 'Ver todas'
+                      : 'Ver sugestões'
+                    : analyzedCount
+                      ? 'Analisar novamente'
+                      : 'Analisar páginas'}
+                </button>
               </div>
               <div className="grid-caption">
                 <span>
@@ -572,7 +688,8 @@ export default function Home() {
               <span>{busy || message}</span>
               {busy &&
                 (busy.includes('Analisando') ||
-                  busy.includes('reconhecimento')) && (
+                  busy.includes('reconhecimento') ||
+                  busy.startsWith('OCR')) && (
                   <button
                     className="text-button"
                     onClick={() => {
@@ -628,6 +745,18 @@ export default function Home() {
               disabled={!!busy}
               checked={sensitive}
               onCheckedChange={setSensitive}
+            />
+          </div>
+          <div className="setting">
+            <div>
+              <strong>Ignorar bordas de digitalização</strong>
+              <span>Desconsidera os 3% externos da imagem.</span>
+            </div>
+            <Switch
+              aria-label="Ignorar bordas de digitalização"
+              disabled={!!busy}
+              checked={ignoreBorders}
+              onCheckedChange={setIgnoreBorders}
             />
           </div>
           <button
@@ -704,6 +833,28 @@ export default function Home() {
           <DialogDescription>
             Confira o conteúdo antes de remover a página.
           </DialogDescription>
+          {previewInfo && (
+            <div className="preview-diagnostics">
+              <strong>{labels[previewInfo.kind]}</strong>
+              <p>{previewInfo.reason}</p>
+              <p>
+                Marcas visuais: {(previewInfo.ink * 100).toFixed(3)}% · OCR:{' '}
+                {previewInfo.ocrStatus === 'done'
+                  ? 'concluído'
+                  : previewInfo.ocrStatus === 'failed'
+                    ? 'falhou — confira manualmente'
+                    : previewInfo.ocrStatus === 'disabled'
+                      ? 'desativado'
+                      : 'não necessário'}
+              </p>
+              {previewInfo.recognizedText && (
+                <details>
+                  <summary>Texto usado na análise</summary>
+                  <pre>{previewInfo.recognizedText}</pre>
+                </details>
+              )}
+            </div>
+          )}
           <div className="preview-scroll">
             {previewBusy ? (
               <LoaderCircle className="spin" />

@@ -832,3 +832,118 @@ footer,
 .document-name {
   font-size: 16px;
 }
+.selection-panel {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 14px;
+}
+.selection-panel form {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.selection-panel label {
+  font-size: 14px;
+  font-weight: 550;
+}
+.range-controls {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-width: 250px;
+}
+.selection-panel p {
+  font-size: 12px;
+  margin: 6px 0;
+}
+.selection-panel .range-error {
+  color: #b33636;
+}
+.selection-readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  color: #355d42;
+  border-top: 1px solid #edf0ee;
+  margin-top: 10px;
+  padding-top: 8px;
+}
+.selection-readout span {
+  overflow-wrap: anywhere;
+  max-height: 100px;
+  overflow: auto;
+}
+.analysis-overview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  background: #edf3ef;
+  border: 1px solid #d6e3da;
+  border-radius: 10px;
+  margin-top: 16px;
+}
+.analysis-overview > svg {
+  color: #306647;
+  flex-shrink: 0;
+}
+.analysis-overview > div {
+  flex: 1;
+}
+.analysis-overview strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.analysis-overview p {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 5px 0 0;
+}
+.preview-diagnostics {
+  font-size: 14px;
+  background: #edf3ef;
+  padding: 12px;
+  border-radius: 6px;
+}
+.preview-diagnostics p {
+  font-size: 13px;
+  margin: 4px 0;
+}
+.preview-diagnostics pre {
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow: auto;
+  font-size: 12px;
+}
+.preview-diagnostics summary {
+  cursor: pointer;
+}
+.preview-scroll {
+  max-height: 60vh;
+}
+@media (max-width: 650px) {
+  .analysis-overview {
+    flex-wrap: wrap;
+  }
+  .analysis-overview > div {
+    min-width: 170px;
+  }
+  .selection-readout {
+    align-items: flex-start;
+  }
+  .range-controls {
+    flex-wrap: wrap;
+    min-width: 100%;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .tool-actions {
+    flex-wrap: wrap;
+  }
+}

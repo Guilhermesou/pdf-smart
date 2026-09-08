@@ -1,4 +1,11 @@
-import { classify, measureInk, type Verdict } from './detection';
+import {
+  classify,
+  measureInk,
+  measureInteriorInk,
+  shouldRunOcr,
+  withoutPageNumbers,
+  type Verdict,
+} from './detection';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 export type PageItem = {
   id: string;
@@ -8,6 +15,7 @@ export type PageItem = {
   thumb: string;
   text: string;
   ink: number;
+  interiorInk?: number;
   verdict?: Verdict;
 };
 export type Source = { name: string; bytes: Uint8Array; doc: PDFDocumentProxy };
@@ -57,10 +65,14 @@ export async function importPdf(file: File, progress: (s: string) => void) {
       }).promise;
       const content = await page.getTextContent();
       const text = content.items
-        .map((x) => ('str' in x ? x.str : ''))
+        .map((x) => ('str' in x ? x.str + (x.hasEOL ? '\n' : '') : ''))
         .join(' ');
-      const ink = measureInk(
-        ctx.getImageData(0, 0, canvas.width, canvas.height).data,
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      const ink = measureInk(pixels);
+      const interiorInk = measureInteriorInk(
+        pixels,
+        canvas.width,
+        canvas.height,
       );
       pages.push({
         id: crypto.randomUUID(),
@@ -70,6 +82,7 @@ export async function importPdf(file: File, progress: (s: string) => void) {
         thumb: canvas.toDataURL('image/webp', 0.8),
         text,
         ink,
+        interiorInk,
       });
       canvas.width = 0;
       page.cleanup();
@@ -110,7 +123,7 @@ export async function renderPage(p: PageItem, width = 1300) {
 }
 export async function analyze(
   pages: PageItem[],
-  options: { ocr: boolean; tolerance: number },
+  options: { ocr: boolean; tolerance: number; ignoreBorders?: boolean },
   onProgress: (s: string) => void,
   cancel: { current: boolean },
 ) {
@@ -118,28 +131,37 @@ export async function analyze(
     | Awaited<ReturnType<(typeof import('tesseract.js'))['createWorker']>>
     | undefined;
   const result: PageItem[] = [];
-  let failed = 0;
+  let failed = 0,
+    ocrUnavailable = false,
+    activePage = 0;
   try {
     for (let i = 0; i < pages.length; i++) {
       if (cancel.current) break;
       const p = pages[i];
+      activePage = i + 1;
       onProgress(`Analisando página ${i + 1} de ${pages.length}`);
+      const ink = options.ignoreBorders ? (p.interiorInk ?? p.ink) : p.ink;
+      let ocrStatus: Verdict['ocrStatus'] = options.ocr
+        ? 'not-needed'
+        : 'disabled';
       let text = p.text,
         confidence = 100;
-      if (
-        options.ocr &&
-        !text.trim() &&
-        p.ink >= 0.00005 &&
-        p.ink < 0.08 &&
-        p.source
-      ) {
+      if (options.ocr && shouldRunOcr(text, ink) && p.source) {
         try {
+          if (ocrUnavailable)
+            throw new Error('OCR indisponível nesta análise.');
           if (!worker) {
             onProgress('Preparando reconhecimento de carimbos…');
             const { createWorker, PSM } = await import('tesseract.js');
             worker = await createWorker('eng', 1, {
-              workerPath: '/ocr/worker.min.js',
-              corePath: '/ocr/core',
+              workerPath: new URL('/ocr/worker.min.js', window.location.origin)
+                .href,
+              corePath: new URL('/ocr/core', window.location.origin).href,
+              errorHandler: () => {},
+              logger: (event) =>
+                onProgress(
+                  `OCR · página ${activePage}/${pages.length} · ${Math.round(event.progress * 100)}%`,
+                ),
               langPath: 'https://tessdata.projectnaptha.com/4.0.0',
             });
             await worker.setParameters({
@@ -148,17 +170,32 @@ export async function analyze(
           }
           const canvas = await renderPage({ ...p, rotation: 0 }, 1500);
           const { data } = await worker.recognize(canvas);
-          text = data.text;
+          // Preserve extracted native text; OCR must not erase real content.
+          const nativeText = withoutPageNumbers(p.text);
+          text = nativeText ? nativeText + '\n' + data.text : data.text;
+          ocrStatus = 'done';
           confidence = data.confidence;
           canvas.width = 0;
         } catch {
           failed++;
+          ocrStatus = 'failed';
+          if (!worker) ocrUnavailable = true;
         }
       }
       result.push({
         ...p,
-        verdict: classify(text, p.ink, options.tolerance, confidence),
+        verdict: {
+          ...classify(text, ink, options.tolerance, confidence),
+          ocrStatus,
+          recognizedText: text.slice(0, 500),
+        },
       });
+      const last = result[result.length - 1];
+      if (last.verdict?.kind === 'blank' && p.ink - ink > 0.001) {
+        last.verdict.kind = 'sparse';
+        last.verdict.reason =
+          'Interior vazio; marcas nas bordas foram desconsideradas. Revise a página inteira.';
+      }
       await new Promise((r) => setTimeout(r, 0));
     }
   } finally {

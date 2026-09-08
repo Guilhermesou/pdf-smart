@@ -2,6 +2,8 @@ export type Verdict = {
   kind: 'blank' | 'stamp' | 'sparse' | 'content';
   reason: string;
   ink: number;
+  ocrStatus?: 'not-needed' | 'done' | 'failed' | 'disabled';
+  recognizedText?: string;
 };
 export function normalize(text: string) {
   return text
@@ -12,13 +14,36 @@ export function normalize(text: string) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+// Remove only isolated page-number lines, not numbers embedded in real content.
+export function withoutPageNumbers(text: string) {
+  return text
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        !/^\s*(?:(?:P[ÁA]G(?:INA)?|FL(?:S)?|FOLHA)[.\s:]*)?\d{1,5}(?:\s*(?:DE|\/)\s*\d{1,5})?\s*$/i.test(
+          line,
+        ),
+    )
+    .join(' ')
+    .trim();
+}
+export function shouldRunOcr(text: string, ink: number) {
+  return (
+    normalize(withoutPageNumbers(text)).length < 180 &&
+    ink >= 0.00005 &&
+    ink < 0.18
+  );
+}
 export function classify(
   text: string,
   ink: number,
   tolerance: number,
   ocrConfidence = 100,
 ): Verdict {
-  const t = normalize(text),
+  const t = normalize(withoutPageNumbers(text)).replace(
+      /\bBRANC0\b/g,
+      'BRANCO',
+    ),
     residual = t.replace(/\bEM\s+BRANCO\b/g, '').trim();
   if (t.includes('EM BRANCO') && !residual && ink < 0.05 && ocrConfidence >= 65)
     return {
@@ -26,8 +51,31 @@ export function classify(
       reason: 'Somente “EM BRANCO” reconhecido. Confira a imagem.',
       ink,
     };
+  if (
+    t.includes('EM BRANCO') &&
+    residual.length <= 12 &&
+    ink < 0.025 &&
+    ocrConfidence >= 65
+  )
+    return {
+      kind: 'sparse',
+      reason:
+        'Carimbo EM BRANCO com outros detalhes. Revise o texto e a imagem.',
+      ink,
+    };
   if (t)
-    return { kind: 'content', reason: 'Texto ou conteúdo reconhecido.', ink };
+    return {
+      kind: 'content',
+      reason: 'Texto reconhecido além de uma numeração isolada.',
+      ink,
+    };
+  if (text.trim() && ink < tolerance)
+    return {
+      kind: 'sparse',
+      reason:
+        'Somente numeração isolada reconhecida. Confira se a página pode ser removida.',
+      ink,
+    };
   if (ink < 0.00005)
     return {
       kind: 'blank',
@@ -68,4 +116,25 @@ export function measureInk(data: Uint8ClampedArray) {
   let ink = 0;
   for (let i = 0; i < threshold; i++) ink += histogram[i];
   return ink / Math.max(1, count);
+}
+
+/** Ignore only the outer 3% scan border; interior content remains included. */
+export function measureInteriorInk(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+) {
+  const borderX = Math.floor(width * 0.03),
+    borderY = Math.floor(height * 0.03),
+    innerWidth = width - 2 * borderX;
+  const inner = new Uint8ClampedArray(innerWidth * (height - 2 * borderY) * 4);
+  for (let y = borderY; y < height - borderY; y++)
+    inner.set(
+      data.subarray(
+        (y * width + borderX) * 4,
+        (y * width + width - borderX) * 4,
+      ),
+      (y - borderY) * innerWidth * 4,
+    );
+  return measureInk(inner);
 }

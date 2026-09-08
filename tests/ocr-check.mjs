@@ -9,6 +9,10 @@ ctx.fillRect(0, 0, 1200, 1600);
 ctx.fillStyle = '#424b98';
 ctx.font = 'bold 46px Arial';
 ctx.fillText('EM BRANCO', 410, 790);
+ctx.font='28px Arial';
+ctx.fillText('42', 590, 1540);
+ctx.fillStyle='black';
+ctx.fillRect(0, 0, 12, 1600);
 const worker = await createWorker('eng', 1, {
   cachePath: '/private/tmp',
   langPath: 'https://tessdata.projectnaptha.com/4.0.0',

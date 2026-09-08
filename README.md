@@ -4,9 +4,9 @@ Editor de páginas de PDF em português. Importa e mescla arquivos, insere pági
 
 ## Stack e desempenho
 
-React + TypeScript/Vinext para interface, PDF.js para leitura/renderização (parser em worker), pdf-lib em Web Worker para exportação sem rasterização, Tesseract.js/WASM para OCR sob demanda. Os módulos pesados são carregados sob demanda. Um único worker OCR é reaproveitado durante cada análise. A renderização é sequencial e limitada a 500 px para miniaturas; OCR usa 1500 px somente em páginas esparsas sem texto extraível. Não existe benchmark comparativo que prove ser a stack mais rápida em todos os cenários.
+React + TypeScript/Vinext para interface, PDF.js para leitura/renderização (parser em worker), pdf-lib em Web Worker para exportação sem rasterização, Tesseract.js/WASM para OCR sob demanda. Os módulos pesados são carregados sob demanda. Números e intervalos (por exemplo 1, 3, 5–10) selecionam páginas pela ordem atual, com validação integral e lista visível. Um único worker OCR é reaproveitado durante cada análise. A renderização é sequencial e limitada a 500 px para miniaturas; OCR usa 1500 px em páginas esparsas com pouco texto extraível, incluindo numeração. Não existe benchmark comparativo que prove ser a stack mais rápida em todos os cenários.
 
-A heurística estima o fundo do scan, mede proporção de pixels escuros e cruza com texto extraído. Carimbo isolado EM BRANCO com baixa cobertura é uma sugestão separada; outros textos impedem essa classificação. A sensibilidade amplia o limiar de marcas esparsas. Nenhuma página é removida automaticamente. OCR falho é informado.
+A heurística estima o fundo do scan, mede proporção de pixels escuros e cruza com texto extraído. Carimbo isolado EM BRANCO com baixa cobertura é uma sugestão separada; numeração isolada é separada do conteúdo. Carimbos com resíduo curto são sugestões de revisão, não páginas certamente vazias. A opção de desconsiderar os 3% externos evita bordas de scanner; páginas com marcas nas bordas sempre exigem revisão. O motivo, o texto reconhecido e a situação do OCR ficam disponíveis na ampliação. A sensibilidade amplia o limiar de marcas esparsas. Nenhuma página é removida automaticamente. OCR falho é informado.
 
 ## Desenvolvimento
 
@@ -14,7 +14,7 @@ A heurística estima o fundo do scan, mede proporção de pixels escuros e cruza
 - `npm run dev`
 - `npm run build`
 - `npx tsc --noEmit`
-- `node --experimental-strip-types --test tests/pdf.test.mjs`
+- `node --experimental-strip-types --test tests/*.test.mjs`
 - `node --experimental-strip-types tests/ocr-check.mjs` (requer download do modelo OCR e o pacote opcional @napi-rs/canvas)
 
 ## Limites desta versão
