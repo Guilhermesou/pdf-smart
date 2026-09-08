@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { PDFDocument, degrees } from 'pdf-lib';
+import { classify, measureInk } from '../lib/pdf/detection.ts';
+
+test('blank, sparse, stamp and real text remain distinct', () => {
+  assert.equal(classify('', 0, 0.0015).kind, 'blank');
+  assert.equal(classify('', 0.001, 0.0015).kind, 'sparse');
+  assert.equal(classify('EM BRANCO', 0.01, 0.0015).kind, 'stamp');
+  assert.equal(
+    classify('EM BRANCO\nAssinatura: Maria', 0.01, 0.0015).kind,
+    'content',
+  );
+  assert.equal(classify('12345', 0.00001, 0.0015).kind, 'content');
+  assert.equal(classify('EM BRANCO', 0.3, 0.0015).kind, 'content');
+  assert.equal(classify('EM BRANCO', 0.01, 0.0015, 20).kind, 'content');
+  assert.equal(classify('', 0.004, 0.0015).kind, 'content');
+  assert.equal(classify('', 0.004, 0.007).kind, 'sparse');
+});
+test('visual density accounts for scan background and dark scans', () => {
+  const pixels = (n, v) =>
+    new Uint8ClampedArray(
+      Array.from({ length: n }, () => [v, v, v, 255]).flat(),
+    );
+  assert.equal(measureInk(pixels(100, 255)), 0);
+  assert.equal(measureInk(pixels(100, 218)), 0);
+  assert.equal(measureInk(pixels(100, 20)), 1);
+  const data = pixels(100, 255);
+  data.set([0, 0, 0, 255], 0);
+  assert.equal(measureInk(data), 0.01);
+});
+test('export worker merges, reorders, deletes, inserts and rotates without rasterizing', async () => {
+  const a = await PDFDocument.create();
+  a.addPage([300, 400]);
+  a.addPage([500, 600]);
+  a.getPage(1).setRotation(degrees(90));
+  const b = await PDFDocument.create();
+  b.addPage([200, 250]);
+  let result;
+  globalThis.self = {
+    postMessage: (value) => {
+      result = value;
+    },
+  };
+  await import('../lib/pdf/export.worker.ts');
+  await self.onmessage({
+    data: {
+      sources: { a: await a.save(), b: await b.save() },
+      pages: [
+        { source: 'b', index: 0, rotation: 0 },
+        { source: 'a', index: 1, rotation: 90 },
+        { source: null, rotation: 0 },
+      ],
+    },
+  });
+  assert.ok(!result.error, result.error);
+  const out = await PDFDocument.load(result.bytes);
+  assert.equal(out.getPageCount(), 3);
+  assert.equal(out.getPage(0).getWidth(), 200);
+  assert.equal(out.getPage(1).getWidth(), 500);
+  assert.equal(out.getPage(1).getRotation().angle, 180);
+  assert.ok(Math.abs(out.getPage(2).getWidth() - 595.28) < 0.01);
+  await self.onmessage({
+    data: {
+      sources: {},
+      pages: [{ source: 'missing', index: 0, rotation: 0 }],
+    },
+  });
+  assert.ok(result.error);
+});
