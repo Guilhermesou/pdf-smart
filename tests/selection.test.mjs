@@ -22,3 +22,11 @@ test('rejects invalid or out-of-range selections atomically', () => {
   ])
     assert.throws(() => parsePageSelection(input, 10));
 });
+
+test('odd/even selection uses one-based current order and includes last odd page', async () => {
+  const { paritySelection } = await import('../lib/pdf/selection.ts');
+  assert.deepEqual(paritySelection(7, 'odd'), [1, 3, 5, 7]);
+  assert.deepEqual(paritySelection(7, 'even'), [2, 4, 6]);
+  assert.deepEqual(paritySelection(0, 'odd'), []);
+  assert.equal(paritySelection(600, 'even').length, 300);
+});

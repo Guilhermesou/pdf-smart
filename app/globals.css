@@ -947,3 +947,128 @@ footer,
     flex-wrap: wrap;
   }
 }
+.editor-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workspace-heading {
+  padding: 28px 0 22px;
+}
+.workspace-heading h1 {
+  font-size: 30px;
+}
+.workspace-heading p {
+  font-size: 14px;
+}
+.workspace-tools {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+.workspace-tools button,
+.tool-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  padding: 12px 14px;
+  font-size: 14px;
+  background: transparent;
+  color: #606b64;
+}
+.workspace-tools button:hover {
+  background: #f0f4f1;
+}
+.workspace-tools .tool-current {
+  background: #e7f0ea;
+  color: #2c6342;
+  font-weight: 600;
+}
+.tool-spacer {
+  flex: 1;
+}
+.settings-sheet {
+  padding: 32px 25px !important;
+  overflow-y: auto;
+  width: min(420px, 95vw) !important;
+  max-width: 420px !important;
+}
+.settings-sheet .setting {
+  margin-top: 12px;
+}
+.settings-sheet .setting span {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 6px;
+  max-width: 280px;
+}
+.settings-sheet .setting strong {
+  font-size: 15px;
+}
+.settings-sheet .ocr-note {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.quick-selection {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #edf0ee;
+}
+.quick-selection > span {
+  font-size: 14px;
+  font-weight: 550;
+  margin-right: 10px;
+}
+.tool-dialog {
+  max-width: 520px !important;
+}
+.tool-dialog p {
+  font-size: 14px;
+}
+.tool-dialog .check-label {
+  line-height: 1.5;
+  align-items: flex-start;
+}
+.tool-dialog .tool-hint {
+  font-size: 12px;
+}
+.page-grid {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+.analysis-overview {
+  padding: 12px 16px;
+}
+.topbar {
+  height: 76px;
+}
+@media (min-width: 1350px) {
+  .page-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+@media (max-width: 650px) {
+  .workspace-tools button,
+  .tool-current {
+    padding: 10px;
+    font-size: 13px;
+  }
+  .tool-spacer {
+    display: none;
+  }
+  .page-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .settings-sheet {
+    padding: 30px 20px !important;
+  }
+}

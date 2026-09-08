@@ -2,6 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   FileStack,
+  Settings2,
+  Combine,
+  Scissors,
+  Minimize2,
   Upload,
   ShieldCheck,
   ScanLine,
@@ -21,8 +25,18 @@ import {
   LoaderCircle,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
 import { Input } from '@/components/ui/input';
-import { parsePageSelection, formatPageSelection } from '@/lib/pdf/selection';
+import {
+  paritySelection,
+  parsePageSelection,
+  formatPageSelection,
+} from '@/lib/pdf/selection';
 import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
@@ -35,6 +49,7 @@ import {
   analyze,
   exportPdf,
   renderPage,
+  pageSize,
   type PageItem,
 } from '@/lib/pdf/engine';
 const labels = {
@@ -52,6 +67,10 @@ export default function Home() {
     [ocr, setOcr] = useState(true),
     [sensitive, setSensitive] = useState(false),
     [ignoreBorders, setIgnoreBorders] = useState(true),
+    [scanMode, setScanMode] = useState(true),
+    [settingsOpen, setSettingsOpen] = useState(false),
+    [toolDialog, setToolDialog] = useState<'split' | 'compress' | null>(null),
+    [rasterAccepted, setRasterAccepted] = useState(false),
     [range, setRange] = useState(''),
     [rangeError, setRangeError] = useState(''),
     [previewInfo, setPreviewInfo] = useState<PageItem['verdict']>(),
@@ -73,6 +92,86 @@ export default function Home() {
   const selectedNumbers = pages.flatMap((p, i) =>
     selected.has(p.id) ? [i + 1] : [],
   );
+  const selectParity = (parity: 'odd' | 'even') => {
+    const nums = paritySelection(pages.length, parity);
+    setSelected(new Set(nums.map((n) => pages[n - 1].id)));
+    setRangeError('');
+    setMessage(
+      `${nums.length} páginas ${parity === 'odd' ? 'ímpares' : 'pares'} selecionadas na ordem atual.`,
+    );
+  };
+  function saveBytes(bytes: Uint8Array, filename: string) {
+    const url = URL.createObjectURL(
+      new Blob([bytes as BlobPart], { type: 'application/pdf' }),
+    );
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+  async function splitPdf(rest: boolean) {
+    if (locked.current) return;
+    locked.current = true;
+    setBusy('Separando páginas…');
+    try {
+      const subset = pages.filter((p) =>
+        rest ? !selected.has(p.id) : selected.has(p.id),
+      );
+      if (!subset.length)
+        throw new Error('Selecione um grupo de páginas primeiro.');
+      saveBytes(
+        await exportPdf(subset),
+        `${name}-${rest ? 'restantes' : 'selecionadas'}.pdf`,
+      );
+      setMessage(`${subset.length} páginas exportadas em arquivo separado.`);
+    } catch (e) {
+      setMessage(String(e));
+    } finally {
+      setBusy('');
+      locked.current = false;
+    }
+  }
+  async function compressPdf() {
+    if (locked.current || !rasterAccepted) return;
+    locked.current = true;
+    cancel.current = false;
+    setBusy('Comprimindo…');
+    try {
+      const { PDFDocument } = await import('pdf-lib');
+      const out = await PDFDocument.create();
+      const baseline = await exportPdf(pages);
+      for (let i = 0; i < pages.length; i++) {
+        if (cancel.current) throw new Error('Compressão cancelada.');
+        setBusy(`Comprimindo página ${i + 1}/${pages.length}`);
+        const canvas = await renderPage(pages[i], 1200);
+        const jpeg = await out.embedJpg(canvas.toDataURL('image/jpeg', 0.65));
+        const size = await pageSize(pages[i]);
+        out
+          .addPage(size)
+          .drawImage(jpeg, { x: 0, y: 0, width: size[0], height: size[1] });
+        canvas.width = 0;
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      const bytes = await out.save();
+      const smaller = bytes.length < baseline.length;
+      saveBytes(
+        smaller ? bytes : baseline,
+        `${name}-${smaller ? 'comprimido' : 'otimizado'}.pdf`,
+      );
+      setMessage(
+        smaller
+          ? `PDF reduzido em ${Math.round((1 - bytes.length / baseline.length) * 100)}% (${(baseline.length / 1048576).toFixed(1)} → ${(bytes.length / 1048576).toFixed(1)} MB).`
+          : 'A compressão não reduziu o tamanho. Foi exportada a versão que preserva o conteúdo.',
+      );
+      setToolDialog(null);
+    } catch (e) {
+      setMessage(String(e));
+    } finally {
+      setBusy('');
+      locked.current = false;
+    }
+  }
   const applyRange = () => {
     try {
       const positions = parsePageSelection(range, pages.length);
@@ -180,7 +279,7 @@ export default function Home() {
     try {
       const result = await analyze(
         pages,
-        { ocr, tolerance: sensitive ? 0.012 : 0.003, ignoreBorders },
+        { ocr, tolerance: sensitive ? 0.012 : 0.003, ignoreBorders, scanMode },
         setBusy,
         cancel,
       );
@@ -313,9 +412,7 @@ export default function Home() {
         <div>
           <div className="eyebrow">SEU ESPAÇO DE DOCUMENTOS</div>
           <h1>
-            {pages.length
-              ? 'Tudo na página certa.'
-              : 'Menos páginas. Mais clareza.'}
+            {pages.length ? 'Organizar páginas' : 'Seu PDF. Do seu jeito.'}
           </h1>
           <p>
             {pages.length
@@ -342,6 +439,36 @@ export default function Home() {
         hidden
         onChange={(e) => void openFiles(e.target.files)}
       />
+      <div className="workspace-tools" aria-label="Ferramentas de PDF">
+        <span className="tool-current">
+          <FileStack size={18} /> Organizar
+        </span>
+        <button disabled={!!busy} onClick={() => input.current?.click()}>
+          <Combine size={18} /> Juntar PDFs
+        </button>
+        <button
+          disabled={!pages.length || !!busy}
+          onClick={() => setToolDialog('split')}
+        >
+          <Scissors size={18} /> Dividir
+        </button>
+        <button
+          disabled={!pages.length || !!busy}
+          onClick={() => {
+            setRasterAccepted(false);
+            setToolDialog('compress');
+          }}
+        >
+          <Minimize2 size={18} /> Comprimir
+        </button>
+        <div className="tool-spacer" />
+        <button disabled={!pages.length || !!busy} onClick={runAnalysis}>
+          <ScanLine size={18} /> Detectar folhas em branco
+        </button>
+        <button onClick={() => setSettingsOpen(true)}>
+          <Settings2 size={18} /> Configurações
+        </button>
+      </div>
       <div className="editor-layout">
         <section
           className="document-area"
@@ -480,6 +607,33 @@ export default function Home() {
                 </div>
               </div>
               <div className="selection-panel">
+                <div className="quick-selection">
+                  <span>Seleção rápida</span>
+                  <button
+                    className="secondary"
+                    disabled={!!busy}
+                    onClick={() => selectParity('odd')}
+                  >
+                    Ímpares · 1, 3, 5…
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={!!busy}
+                    onClick={() => selectParity('even')}
+                  >
+                    Pares · 2, 4, 6…
+                  </button>
+                  <button
+                    className="secondary"
+                    disabled={!!busy || !candidates.length}
+                    onClick={() => {
+                      setSelected(new Set(candidates.map((p) => p.id)));
+                      setFilter(true);
+                    }}
+                  >
+                    Sugestões ({candidates.length})
+                  </button>
+                </div>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -710,115 +864,161 @@ export default function Home() {
             </div>
           )}
         </section>
-        <aside className="inspector">
-          <span className="feature-label">
-            <ScanLine size={18} /> DETECÇÃO INTELIGENTE
-          </span>
-          <h2>
-            O branco tem
-            <br />
-            muitas formas.
-          </h2>
-          <p>
-            Páginas vazias, pequenos detalhes ou um carimbo “EM BRANCO”.
-            Encontre o que pode sair.
-          </p>
-          <div className="setting">
-            <div>
-              <strong>Reconhecer carimbos</strong>
-              <span>Procura “EM BRANCO” em imagens.</span>
-            </div>
-            <Switch
-              aria-label="Reconhecer carimbos com OCR"
-              disabled={!!busy}
-              checked={ocr}
-              onCheckedChange={setOcr}
-            />
-          </div>
-          <div className="setting">
-            <div>
-              <strong>Incluir pequenos detalhes</strong>
-              <span>Mais sugestões para revisar.</span>
-            </div>
-            <Switch
-              aria-label="Incluir páginas com pequenos detalhes"
-              disabled={!!busy}
-              checked={sensitive}
-              onCheckedChange={setSensitive}
-            />
-          </div>
-          <div className="setting">
-            <div>
-              <strong>Ignorar bordas de digitalização</strong>
-              <span>Desconsidera os 3% externos da imagem.</span>
-            </div>
-            <Switch
-              aria-label="Ignorar bordas de digitalização"
-              disabled={!!busy}
-              checked={ignoreBorders}
-              onCheckedChange={setIgnoreBorders}
-            />
-          </div>
-          <button
-            className="primary analyze-button"
-            disabled={!pages.length || !!busy}
-            onClick={runAnalysis}
-          >
-            <ScanLine size={17} /> Analisar páginas
-          </button>
-          <p className="ocr-note">
-            {ocr
-              ? 'O OCR é baixado no primeiro uso. Seus PDFs continuam no dispositivo.'
-              : 'Analisa imagem e texto do PDF. Ative o OCR para ler carimbos digitalizados.'}
-          </p>
-          {pages.some((p) => p.verdict) ? (
-            <div className="results">
-              <div className="results-heading">
-                <span>SUGESTÕES</span>
-                <strong>{candidates.length}</strong>
-              </div>
-              {(['blank', 'stamp', 'sparse'] as const).map((kind) => (
-                <div className="result-row" key={kind}>
-                  <span>{labels[kind]}</span>
-                  <b>{pages.filter((p) => p.verdict?.kind === kind).length}</b>
-                </div>
-              ))}
-              <button
-                className="secondary full"
-                onClick={() => setFilter(!filter)}
-              >
-                {filter ? 'Ver todas as páginas' : 'Revisar sugestões'}
-              </button>
-              <button
-                className="text-button full"
-                disabled={!candidates.length || !!busy}
-                onClick={() => {
-                  setSelected(new Set(candidates.map((p) => p.id)));
-                  setFilter(true);
-                }}
-              >
-                Selecionar sugestões
-              </button>
-              <p className="review-note">
-                Confira cada página. Assinaturas, marcas leves e textos pequenos
-                podem parecer vazios.
-              </p>
-            </div>
-          ) : (
-            <div className="analysis-step">
-              <b>01—03</b>
+        <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <SheetContent className="settings-sheet">
+            <SheetTitle>Configurações de análise</SheetTitle>
+            <SheetDescription>
+              Ajuste a detecção. Nenhuma página é removida automaticamente.
+            </SheetDescription>
+            <div className="setting">
               <div>
-                <strong>Abra. Analise. Revise.</strong>
-                <span>Você decide o que remover.</span>
+                <strong>Folhas digitalizadas</strong>
+                <span>
+                  Carimbos inclinados, furos e marcas do verso. Pode sugerir
+                  páginas com assinaturas; revise.
+                </span>
               </div>
+              <Switch
+                checked={scanMode}
+                onCheckedChange={setScanMode}
+                disabled={!!busy}
+                aria-label="Analisar folhas digitalizadas"
+              />
             </div>
-          )}
-          <div className="local-note">
-            <ShieldCheck size={20} />
-            <span>Seu documento é processado no seu dispositivo.</span>
-          </div>
-        </aside>
+            <div className="setting">
+              <div>
+                <strong>Reconhecer carimbos</strong>
+                <span>Procura “EM BRANCO” em imagens.</span>
+              </div>
+              <Switch
+                aria-label="Reconhecer carimbos com OCR"
+                disabled={!!busy}
+                checked={ocr}
+                onCheckedChange={setOcr}
+              />
+            </div>
+            <div className="setting">
+              <div>
+                <strong>Incluir pequenos detalhes</strong>
+                <span>Mais sugestões para revisar.</span>
+              </div>
+              <Switch
+                aria-label="Incluir páginas com pequenos detalhes"
+                disabled={!!busy}
+                checked={sensitive}
+                onCheckedChange={setSensitive}
+              />
+            </div>
+            <div className="setting">
+              <div>
+                <strong>Ignorar bordas de digitalização</strong>
+                <span>Desconsidera os 3% externos da imagem.</span>
+              </div>
+              <Switch
+                aria-label="Ignorar bordas de digitalização"
+                disabled={!!busy}
+                checked={ignoreBorders}
+                onCheckedChange={setIgnoreBorders}
+              />
+            </div>
+            <button
+              className="primary analyze-button"
+              disabled={!pages.length || !!busy}
+              onClick={runAnalysis}
+            >
+              <ScanLine size={17} /> Analisar páginas
+            </button>
+            <p className="ocr-note">
+              {ocr
+                ? 'O OCR é baixado no primeiro uso. Seus PDFs continuam no dispositivo.'
+                : 'Analisa imagem e texto do PDF. Ative o OCR para ler carimbos digitalizados.'}
+            </p>
+            <div className="local-note">
+              <ShieldCheck size={20} />
+              <span>Seu documento é processado no seu dispositivo.</span>
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
+      <Dialog
+        open={toolDialog !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setToolDialog(null);
+        }}
+      >
+        <DialogContent className="tool-dialog">
+          <DialogTitle>
+            {toolDialog === 'split'
+              ? 'Dividir PDF'
+              : 'Comprimir PDF digitalizado'}
+          </DialogTitle>
+          <DialogDescription>
+            {toolDialog === 'split'
+              ? 'Exporte a seleção e o restante em arquivos separados. O documento aberto permanece intacto.'
+              : 'Reduz imagens para 1200 px de largura com JPEG. O tamanho final depende do documento.'}
+          </DialogDescription>
+          {toolDialog === 'split' ? (
+            <>
+              <p>
+                {selected.size} páginas selecionadas ·{' '}
+                {pages.length - selected.size} restantes
+              </p>
+              <button
+                className="primary"
+                disabled={!!busy || !selected.size}
+                onClick={() => void splitPdf(false)}
+              >
+                Baixar selecionadas
+              </button>
+              <button
+                className="secondary"
+                disabled={!!busy || pages.length === selected.size}
+                onClick={() => void splitPdf(true)}
+              >
+                Baixar restantes
+              </button>
+              <p className="tool-hint">
+                Use os botões de pares/ímpares ou informe um intervalo no editor
+                antes de dividir.
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                Esta opção transforma as páginas em imagens: textos deixam de
+                ser pesquisáveis ou selecionáveis, e links e formulários são
+                removidos. É indicada para digitalizações.
+              </p>
+              <label className="check-label">
+                <Checkbox
+                  checked={rasterAccepted}
+                  disabled={!!busy}
+                  onCheckedChange={(v) => setRasterAccepted(!!v)}
+                />{' '}
+                Aceito gerar uma cópia em imagens com menor qualidade.
+              </label>
+              <button
+                className="primary"
+                disabled={!!busy || !rasterAccepted}
+                onClick={() => void compressPdf()}
+              >
+                Comprimir e baixar
+              </button>
+            </>
+          )}
+          {busy && <p role="status">{busy}</p>}
+          {busy.startsWith('Comprimindo') && (
+            <button
+              className="secondary"
+              onClick={() => {
+                cancel.current = true;
+              }}
+            >
+              Cancelar após a página atual
+            </button>
+          )}
+        </DialogContent>
+      </Dialog>
       <footer>
         FEITO PARA DOCUMENTOS REAIS.<span>Organizar. Revisar. Resolver.</span>
       </footer>

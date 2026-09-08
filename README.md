@@ -24,3 +24,11 @@ A edição é estrutural, por páginas: não altera texto existente, não faz re
 A detecção é heurística: assinaturas, desenhos claros, carimbos inclinados, páginas com bordas e digitalizações degradadas precisam de revisão. O teste OCR usa um carimbo sintético; ainda é necessária calibração com documentos reais do usuário. O modelo de idioma é baixado de tessdata.projectnaptha.com no primeiro uso; o PDF não é enviado. Fontes, worker e WASM são servidos pelo próprio aplicativo.
 
 A aplicação expõe a ferramenta WebMCP somente de leitura `read_pdf_pages` quando o navegador suporta document.modelContext. Esse contrato não foi validado em um navegador com WebMCP disponível. A compilação, os testes automatizados de classificação/exportação e o teste OCR são separados de testes de interação do navegador, que não foram executados.
+
+## Ferramentas e digitalizações
+
+A área do editor usa toda a largura, com detecção em um painel fechado de Configurações. Seleção rápida de pares/ímpares usa índices atuais começando em 1. Juntar adiciona PDFs ao documento; Dividir exporta a seleção e as páginas restantes em downloads separados. Comprimir gera, com confirmação explícita, uma cópia rasterizada a 1200 px com JPEG 65%, removendo camadas de texto, links e formulários. Se a cópia ficar maior, a exportação estrutural é mantida.
+
+O modo Folhas digitalizadas procura uma região escura isolada após desconsiderar faixa lateral de encadernação e marcas muito claras do verso. Tenta ler essa região em até oito orientações, reaproveitando o worker. Uma leitura inconclusiva de poucas marcas gera apenas sugestão para revisão. Isso pode incluir assinaturas e não é uma garantia de ausência de conteúdo.
+
+Validação adicional: `node --experimental-strip-types tests/scan-ocr-check.mjs` reproduz carimbo inclinado, encadernação e texto do verso com uma imagem sintética. As imagens temporárias indicadas pelo usuário não estavam mais acessíveis no disco; o PDF original não foi validado.

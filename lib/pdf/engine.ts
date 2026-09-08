@@ -1,3 +1,4 @@
+import { recognizeScanStamp } from './scan';
 import {
   classify,
   measureInk,
@@ -123,7 +124,12 @@ export async function renderPage(p: PageItem, width = 1300) {
 }
 export async function analyze(
   pages: PageItem[],
-  options: { ocr: boolean; tolerance: number; ignoreBorders?: boolean },
+  options: {
+    ocr: boolean;
+    tolerance: number;
+    ignoreBorders?: boolean;
+    scanMode?: boolean;
+  },
   onProgress: (s: string) => void,
   cancel: { current: boolean },
 ) {
@@ -144,6 +150,7 @@ export async function analyze(
       let ocrStatus: Verdict['ocrStatus'] = options.ocr
         ? 'not-needed'
         : 'disabled';
+      let scanReview = false;
       let text = p.text,
         confidence = 100;
       if (options.ocr && shouldRunOcr(text, ink) && p.source) {
@@ -169,7 +176,22 @@ export async function analyze(
             });
           }
           const canvas = await renderPage({ ...p, rotation: 0 }, 1500);
-          const { data } = await worker.recognize(canvas);
+          const recognized = options.scanMode
+            ? await recognizeScanStamp(
+                worker,
+                canvas,
+                (w, h) => {
+                  const c = document.createElement('canvas');
+                  c.width = w;
+                  c.height = h;
+                  return c;
+                },
+                withoutPageNumbers(p.text),
+                () => cancel.current,
+              )
+            : { ...(await worker.recognize(canvas)), review: false };
+          const { data } = recognized;
+          scanReview = recognized.review;
           // Preserve extracted native text; OCR must not erase real content.
           const nativeText = withoutPageNumbers(p.text);
           text = nativeText ? nativeText + '\n' + data.text : data.text;
@@ -191,6 +213,11 @@ export async function analyze(
         },
       });
       const last = result[result.length - 1];
+      if (scanReview && last.verdict?.kind === 'content') {
+        last.verdict.kind = 'sparse';
+        last.verdict.reason =
+          'Poucas marcas escuras concentradas, compatíveis com carimbo ou assinatura. OCR inconclusivo; revise a página inteira.';
+      }
       if (last.verdict?.kind === 'blank' && p.ink - ink > 0.001) {
         last.verdict.kind = 'sparse';
         last.verdict.reason =
@@ -227,4 +254,14 @@ export function exportPdf(pages: PageItem[]) {
       ),
     });
   });
+}
+
+export async function pageSize(p: PageItem): Promise<[number, number]> {
+  if (!p.source) return p.rotation % 180 ? [841.89, 595.28] : [595.28, 841.89];
+  const page = await sources.get(p.source)!.doc.getPage(p.index + 1);
+  const view = page.getViewport({
+    scale: 1,
+    rotation: page.rotate + p.rotation,
+  });
+  return [view.width, view.height];
 }

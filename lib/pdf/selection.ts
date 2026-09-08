@@ -34,3 +34,12 @@ export function formatPageSelection(pages: number[]): string {
   }
   return ranges.join(', ');
 }
+
+export function paritySelection(
+  total: number,
+  parity: 'odd' | 'even',
+): number[] {
+  return Array.from({ length: total }, (_, i) => i + 1).filter(
+    (n) => n % 2 === (parity === 'odd' ? 1 : 0),
+  );
+}
