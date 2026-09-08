@@ -1072,3 +1072,7 @@ footer,
     padding: 30px 20px !important;
   }
 }
+.verdict.bleed {
+  background: #eef0fc;
+  color: #4d5e99;
+}

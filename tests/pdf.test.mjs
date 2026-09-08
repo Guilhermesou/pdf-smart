@@ -94,3 +94,11 @@ test('scan-border exclusion retains central content and handles blank images', (
   data.set([0, 0, 0, 255], (50 * w + 50) * 4);
   assert.ok(measureInteriorInk(data, w, h) > 0);
 });
+
+test('OCR spacing inside EM BRANCO is normalized without dropping other text', () => {
+  assert.equal(classify('EM BR ANCO', 0.01, 0.003, 90).kind, 'stamp');
+  assert.equal(
+    classify('EM BR ANCO\nAssinatura: Maria', 0.01, 0.003, 90).kind,
+    'content',
+  );
+});

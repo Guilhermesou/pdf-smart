@@ -1,4 +1,4 @@
-import { recognizeScanStamp } from './scan';
+import { recognizeScanStamp, looksLikeBleedThrough } from './scan';
 import {
   classify,
   measureInk,
@@ -151,6 +151,7 @@ export async function analyze(
         ? 'not-needed'
         : 'disabled';
       let scanReview = false;
+      let scanMetrics: { ink: number; paleInk: number } | undefined;
       let text = p.text,
         confidence = 100;
       if (options.ocr && shouldRunOcr(text, ink) && p.source) {
@@ -192,6 +193,7 @@ export async function analyze(
             : { ...(await worker.recognize(canvas)), review: false };
           const { data } = recognized;
           scanReview = recognized.review;
+          if ('scan' in recognized) scanMetrics = recognized.scan;
           // Preserve extracted native text; OCR must not erase real content.
           const nativeText = withoutPageNumbers(p.text);
           text = nativeText ? nativeText + '\n' + data.text : data.text;
@@ -210,6 +212,8 @@ export async function analyze(
           ...classify(text, ink, options.tolerance, confidence),
           ocrStatus,
           recognizedText: text.slice(0, 500),
+          darkInk: scanMetrics?.ink,
+          paleInk: scanMetrics?.paleInk,
         },
       });
       const last = result[result.length - 1];
@@ -217,6 +221,16 @@ export async function analyze(
         last.verdict.kind = 'sparse';
         last.verdict.reason =
           'Poucas marcas escuras concentradas, compatíveis com carimbo ou assinatura. OCR inconclusivo; revise a página inteira.';
+      }
+      if (
+        last.verdict &&
+        last.verdict.kind !== 'stamp' &&
+        scanMetrics &&
+        looksLikeBleedThrough(scanReview, scanMetrics.ink, scanMetrics.paleInk)
+      ) {
+        last.verdict.kind = 'bleed';
+        last.verdict.reason =
+          'Predominam marcas claras com poucos traços escuros concentrados. Pode ser transparência da frente, mas também conteúdo desbotado: confira a página inteira antes de excluir.';
       }
       if (last.verdict?.kind === 'blank' && p.ink - ink > 0.001) {
         last.verdict.kind = 'sparse';

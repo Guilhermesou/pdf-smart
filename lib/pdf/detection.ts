@@ -1,9 +1,11 @@
 export type Verdict = {
-  kind: 'blank' | 'stamp' | 'sparse' | 'content';
+  kind: 'blank' | 'stamp' | 'sparse' | 'bleed' | 'content';
   reason: string;
   ink: number;
   ocrStatus?: 'not-needed' | 'done' | 'failed' | 'disabled';
   recognizedText?: string;
+  darkInk?: number;
+  paleInk?: number;
 };
 export function normalize(text: string) {
   return text
@@ -41,8 +43,8 @@ export function classify(
   ocrConfidence = 100,
 ): Verdict {
   const t = normalize(withoutPageNumbers(text)).replace(
-      /\bBRANC0\b/g,
-      'BRANCO',
+      /\bE\s*M\s*B\s*R\s*A\s*N\s*C\s*[O0]\b/g,
+      'EM BRANCO',
     ),
     residual = t.replace(/\bEM\s+BRANCO\b/g, '').trim();
   if (t.includes('EM BRANCO') && !residual && ink < 0.05 && ocrConfidence >= 65)

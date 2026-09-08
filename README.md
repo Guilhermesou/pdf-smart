@@ -21,7 +21,7 @@ A heurística estima o fundo do scan, mede proporção de pixels escuros e cruza
 
 A edição é estrutural, por páginas: não altera texto existente, não faz redação segura nem preserva assinaturas digitais. Documentos criptografados não são aceitos. Formulários interativos, marcadores e metadados documentais não têm preservação garantida na reconstrução. Arquivos muito grandes são limitados pela memória do dispositivo; fontes e histórico (20 operações) permanecem em memória até fechar/recarregar a aba. Miniaturas de todas as páginas são geradas na importação.
 
-A detecção é heurística: assinaturas, desenhos claros, carimbos inclinados, páginas com bordas e digitalizações degradadas precisam de revisão. O teste OCR usa um carimbo sintético; ainda é necessária calibração com documentos reais do usuário. O modelo de idioma é baixado de tessdata.projectnaptha.com no primeiro uso; o PDF não é enviado. Fontes, worker e WASM são servidos pelo próprio aplicativo.
+A detecção é heurística: assinaturas, desenhos claros, carimbos inclinados, páginas com bordas e digitalizações degradadas precisam de revisão. Há testes sintéticos e regressão local com quatro imagens reais fornecidas pelo usuário. O PDF original completo ainda não foi validado. O modelo de idioma é baixado de tessdata.projectnaptha.com no primeiro uso; o PDF não é enviado. Fontes, worker e WASM são servidos pelo próprio aplicativo.
 
 A aplicação expõe a ferramenta WebMCP somente de leitura `read_pdf_pages` quando o navegador suporta document.modelContext. Esse contrato não foi validado em um navegador com WebMCP disponível. A compilação, os testes automatizados de classificação/exportação e o teste OCR são separados de testes de interação do navegador, que não foram executados.
 
@@ -31,4 +31,12 @@ A área do editor usa toda a largura, com detecção em um painel fechado de Con
 
 O modo Folhas digitalizadas procura uma região escura isolada após desconsiderar faixa lateral de encadernação e marcas muito claras do verso. Tenta ler essa região em até oito orientações, reaproveitando o worker. Uma leitura inconclusiva de poucas marcas gera apenas sugestão para revisão. Isso pode incluir assinaturas e não é uma garantia de ausência de conteúdo.
 
-Validação adicional: `node --experimental-strip-types tests/scan-ocr-check.mjs` reproduz carimbo inclinado, encadernação e texto do verso com uma imagem sintética. As imagens temporárias indicadas pelo usuário não estavam mais acessíveis no disco; o PDF original não foi validado.
+Validação adicional: `node --experimental-strip-types tests/scan-ocr-check.mjs` reproduz carimbo inclinado, encadernação e texto do verso com uma imagem sintética. A regressão com quatro novas imagens reais reconheceu todas como sugestões: duas com leitura de EM BRANCO e duas por indícios de transparência. Isso não mede a taxa de falsos positivos em documentos desconhecidos; o PDF original completo não foi validado.
+
+### Transparência da frente
+
+Pequenos pontos afastados do carimbo não devem aumentar artificialmente a área de conteúdo: a análise agrupa traços próximos, tolerando manchas isoladas apenas quando representam menos de 10% dos pixels escuros e menos de 0,025% da área examinada. Outros blocos relevantes de escrita continuam participando da classificação. A direção predominante do carimbo orienta as tentativas de OCR; tons intermediários são preservados na leitura para não apagar letras falhadas.
+
+A categoria Possível verso indica predominância de marcas claras com poucos traços escuros concentrados. É uma sugestão para revisão, não confirmação de que a folha esteja vazia ou prova de espelhamento. Não depende de posição par/ímpar. Conteúdo realmente desbotado pode ter aparência semelhante.
+
+Regressão privada: `node --experimental-strip-types tests/scan-examples.mjs /caminho/manifest.json --assert`. O manifesto é uma lista de objetos com `path` (imagem local) e `crop` ([x, y, largura, altura] da folha, sem a interface do visualizador). As imagens e manifestos do usuário permanecem fora do repositório.

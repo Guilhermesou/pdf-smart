@@ -8,35 +8,114 @@ export function scanRegion(
     right = Math.ceil(width * 0.94),
     top = Math.floor(height * 0.04),
     bottom = Math.ceil(height * 0.96);
-  let x0 = right,
-    y0 = bottom,
-    x1 = left,
-    y1 = top,
-    count = 0;
+  const cell = Math.max(8, Math.round(width / 40));
+  const cols = Math.ceil(width / cell),
+    rows = Math.ceil(height / cell);
+  const tiles = new Uint32Array(cols * rows),
+    points: [number, number][] = [];
+  let paleCount = 0;
   for (let y = top; y < bottom; y++)
     for (let x = left; x < right; x++) {
       const i = (y * width + x) * 4,
-        gray =
-          (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) *
-            (data[i + 3] / 255) +
-          255 * (1 - data[i + 3] / 255);
+        alpha = data[i + 3] / 255;
+      const gray =
+        (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) * alpha +
+        255 * (1 - alpha);
       if (gray < 175) {
-        count++;
-        x0 = Math.min(x0, x);
-        x1 = Math.max(x1, x);
-        y0 = Math.min(y0, y);
-        y1 = Math.max(y1, y);
-      }
+        points.push([x, y]);
+        tiles[Math.floor(y / cell) * cols + Math.floor(x / cell)]++;
+      } else if (gray < 247) paleCount++;
     }
   const area = (right - left) * (bottom - top),
+    count = points.length,
     ink = count / area;
-  return {
-    ink,
-    box: count
-      ? { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 }
-      : null,
-    boxArea: count ? ((x1 - x0 + 1) * (y1 - y0 + 1)) / area : 0,
-  };
+  // Group nearby strokes; small, distant specks must not enlarge the stamp crop.
+  const visited = new Uint8Array(tiles.length),
+    groups: { tiles: Set<number>; count: number }[] = [];
+  for (let start = 0; start < tiles.length; start++) {
+    if (!tiles[start] || visited[start]) continue;
+    const group = { tiles: new Set<number>(), count: 0 },
+      queue = [start];
+    visited[start] = 1;
+    for (let q = 0; q < queue.length; q++) {
+      const index = queue[q],
+        cx = index % cols,
+        cy = Math.floor(index / cols);
+      group.tiles.add(index);
+      group.count += tiles[index];
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+          const x = cx + dx,
+            y = cy + dy;
+          if (x < 0 || x >= cols || y < 0 || y >= rows) continue;
+          const next = y * cols + x;
+          if (tiles[next] && !visited[next]) {
+            visited[next] = 1;
+            queue.push(next);
+          }
+        }
+    }
+    groups.push(group);
+  }
+  groups.sort((a, b) => b.count - a.count);
+  const dominant = groups[0],
+    outsideInk = dominant ? (count - dominant.count) / area : 0;
+  // Only isolated specks may be discarded. Additional dark writing blocks this shortcut.
+  const useDominant =
+    dominant &&
+    dominant.count / Math.max(1, count) >= 0.9 &&
+    outsideInk < 0.00025;
+  let x0 = right,
+    y0 = bottom,
+    x1 = left,
+    y1 = top;
+  for (const [x, y] of points) {
+    if (
+      useDominant &&
+      !dominant.tiles.has(Math.floor(y / cell) * cols + Math.floor(x / cell))
+    )
+      continue;
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    y0 = Math.min(y0, y);
+    y1 = Math.max(y1, y);
+  }
+  const box = count
+    ? { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 }
+    : null;
+  const boxArea = box ? (box.width * box.height) / area : 0;
+  let sx = 0,
+    sy = 0,
+    sxx = 0,
+    syy = 0,
+    sxy = 0,
+    n = 0;
+  for (const [x, y] of points) {
+    if (
+      box &&
+      (x < box.x ||
+        x >= box.x + box.width ||
+        y < box.y ||
+        y >= box.y + box.height)
+    )
+      continue;
+    n++;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    syy += y * y;
+    sxy += x * y;
+  }
+  const axis = n
+    ? (0.5 *
+        Math.atan2(
+          2 * (sxy - (sx * sy) / n),
+          sxx - (sx * sx) / n - (syy - (sy * sy) / n),
+        ) *
+        180) /
+      Math.PI
+    : 0;
+  return { ink, box, boxArea, paleInk: paleCount / area, outsideInk, axis };
 }
 export function scanNeedsReview(
   nativeText: string,
@@ -46,8 +125,22 @@ export function scanNeedsReview(
   return !nativeText.trim() && ink < 0.012 && boxArea < 0.2;
 }
 
+export function hasBlankStamp(text: string) {
+  return /\bE\s*M\s*B\s*R\s*A\s*N\s*C\s*[O0]\b/i.test(text);
+}
+export function looksLikeBleedThrough(
+  review: boolean,
+  ink: number,
+  paleInk: number,
+) {
+  return review && paleInk > Math.max(0.004, ink * 2.5);
+}
+
 export async function recognizeScanStamp(
   worker: {
+    setParameters?: (parameters: {
+      tessedit_pageseg_mode: import('tesseract.js').PSM;
+    }) => Promise<unknown>;
     recognize: (
       canvas: HTMLCanvasElement,
     ) => Promise<{ data: { text: string; confidence: number } }>;
@@ -84,21 +177,31 @@ export async function recognizeScanStamp(
     );
     const pixels = out.getImageData(0, 0, target.width, target.height);
     for (let k = 0; k < pixels.data.length; k += 4) {
-      const v =
+      const gray =
         pixels.data[k] * 0.299 +
-          pixels.data[k + 1] * 0.587 +
-          pixels.data[k + 2] * 0.114 <
-        175
-          ? 0
-          : 255;
+        pixels.data[k + 1] * 0.587 +
+        pixels.data[k + 2] * 0.114;
+      const v = gray < 220 ? gray : 255;
       pixels.data[k] = pixels.data[k + 1] = pixels.data[k + 2] = v;
     }
     out.putImageData(pixels, 0, 0);
   }
   try {
+    if (review && target !== canvas)
+      await worker.setParameters?.({
+        tessedit_pageseg_mode: '7' as import('tesseract.js').PSM,
+      });
     let { data } = await worker.recognize(target);
-    if (review && !/EM\s+BRANC[O0]/i.test(data.text))
-      for (const angle of [-60, 60, -90, 90, -120, 120, 180]) {
+    if (review && !hasBlankStamp(data.text))
+      for (const angle of [
+        -scan.axis,
+        180 - scan.axis,
+        -60,
+        60,
+        -90,
+        90,
+        180,
+      ]) {
         if (cancelled()) break;
         const r = (angle * Math.PI) / 180,
           rotated = create(
@@ -123,13 +226,23 @@ export async function recognizeScanStamp(
         } finally {
           rotated.width = 0;
         }
-        if (/EM\s+BRANC[O0]/i.test(attempt.data.text)) {
+        if (
+          attempt.data.confidence > data.confidence &&
+          attempt.data.text.trim()
+        )
+          data = attempt.data;
+        if (hasBlankStamp(attempt.data.text)) {
           data = attempt.data;
           break;
         }
       }
-    return { data, review };
+    return { data, review, scan };
   } finally {
-    if (target !== canvas) target.width = 0;
+    if (target !== canvas) {
+      target.width = 0;
+      await worker.setParameters?.({
+        tessedit_pageseg_mode: '11' as import('tesseract.js').PSM,
+      });
+    }
   }
 }

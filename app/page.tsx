@@ -56,6 +56,7 @@ const labels = {
   blank: 'Em branco',
   stamp: 'Carimbo EM BRANCO',
   sparse: 'Poucos detalhes',
+  bleed: 'Possível verso',
   content: 'Com conteúdo',
 };
 export default function Home() {
@@ -874,8 +875,8 @@ export default function Home() {
               <div>
                 <strong>Folhas digitalizadas</strong>
                 <span>
-                  Carimbos inclinados, furos e marcas do verso. Pode sugerir
-                  páginas com assinaturas; revise.
+                  Carimbos inclinados, furos e transparência da frente. Pode
+                  sugerir páginas com assinaturas; revise.
                 </span>
               </div>
               <Switch
@@ -1047,6 +1048,14 @@ export default function Home() {
                       ? 'desativado'
                       : 'não necessário'}
               </p>
+              {previewInfo.paleInk !== undefined && (
+                <p>
+                  Marcas claras: {(previewInfo.paleInk * 100).toFixed(2)}% ·
+                  Traços escuros:{' '}
+                  {((previewInfo.darkInk ?? 0) * 100).toFixed(2)}%. A
+                  classificação não depende de ser página par ou ímpar.
+                </p>
+              )}
               {previewInfo.recognizedText && (
                 <details>
                   <summary>Texto usado na análise</summary>

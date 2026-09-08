@@ -21,3 +21,25 @@ test('distributed or dense marks are not considered an isolated stamp', () => {
   assert.equal(scanNeedsReview('', 0.05, 0.1), false);
   assert.equal(scanNeedsReview('', 0.003, 0.7), false);
 });
+
+test('distant specks do not expand the stamp region but additional writing is retained', () => {
+  const w = 400,
+    h = 600,
+    p = new Uint8ClampedArray(w * h * 4).fill(255);
+  const paint = (x, y) => p.set([60, 60, 60, 255], (y * w + x) * 4);
+  for (let y = 250; y < 310; y++) for (let x = 200; x < 207; x++) paint(x, y);
+  paint(330, 530);
+  paint(340, 510);
+  const isolated = scanRegion(p, w, h);
+  assert.ok(isolated.boxArea < 0.2);
+  assert.ok(isolated.outsideInk > 0);
+  for (let y = 80; y < 120; y++) for (let x = 80; x < 110; x++) paint(x, y);
+  const writing = scanRegion(p, w, h);
+  assert.equal(scanNeedsReview('', writing.ink, writing.boxArea), false);
+});
+test('possible bleed-through is a review signal, not a parity assumption', async () => {
+  const { looksLikeBleedThrough } = await import('../lib/pdf/scan.ts');
+  assert.equal(looksLikeBleedThrough(true, 0.002, 0.04), true);
+  assert.equal(looksLikeBleedThrough(true, 0.002, 0.001), false);
+  assert.equal(looksLikeBleedThrough(false, 0.002, 0.04), false);
+});
