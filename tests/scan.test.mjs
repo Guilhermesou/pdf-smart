@@ -71,3 +71,19 @@ test('wide colored binding is ignored but a dark writing block is retained', asy
   s = scanRegion(ctx.getImageData(0, 0, 400, 600).data, 400, 600);
   assert.equal(scanNeedsReview('OCR', s.ink, s.boxArea, true), false);
 });
+
+test('partial binding and paired right punch holes do not obscure a sparse verso', async () => {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const c = createCanvas(700, 940), ctx = c.getContext('2d');
+  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 700, 940);
+  ctx.fillStyle = '#a95228'; ctx.fillRect(0, 200, 125, 440);
+  ctx.fillStyle = '#444'; ctx.fillRect(350, 440, 7, 65);
+  for (const y of [300, 570]) { ctx.beginPath(); ctx.arc(635, y, 8, 0, Math.PI * 2); ctx.fill(); }
+  const metrics = () => scanRegion(ctx.getImageData(0, 0, 700, 940).data, 700, 940);
+  let s = metrics();
+  assert.equal(scanNeedsReview('OCR', s.ink, s.boxArea, true), true);
+  ctx.fillRect(230, 160, 300, 35);
+  ctx.fillRect(230, 780, 300, 35);
+  s = metrics();
+  assert.equal(scanNeedsReview('OCR', s.ink, s.boxArea, true), false);
+});

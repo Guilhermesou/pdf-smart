@@ -15,7 +15,7 @@ export function scanRegion(
       if (data[i + 3] > 240 && Math.max(r, g, b) - Math.min(r, g, b) > 30 && (r + g + b) / 3 < 210) colored++;
       samples++;
     }
-    if (colored / Math.max(1, samples) < 0.75) break;
+    if (colored / Math.max(1, samples) < 0.35) break;
   }
   const right = Math.ceil(width * 0.94),
     top = Math.floor(height * 0.04),
@@ -57,8 +57,7 @@ export function scanRegion(
         sumXY[tile] += x * y;
       } else if (gray < 247) paleCount++;
     }
-  const area = (right - left) * (bottom - top),
-    ink = count / area;
+  const area = (right - left) * (bottom - top);
   // Group nearby strokes; small, distant specks must not enlarge the stamp crop.
   const visited = new Uint8Array(tiles.length),
     groups: { tiles: Set<number>; count: number }[] = [];
@@ -87,6 +86,27 @@ export function scanRegion(
     }
     groups.push(group);
   }
+  // Paired compact marks aligned on the outer right margin are consistent
+  // with punch holes. Require two separate marks; keep isolated signatures.
+  const bounds = (group: { tiles: Set<number>; count: number }) => {
+    let x0 = width, y0 = height, x1 = 0, y1 = 0;
+    for (const tile of group.tiles) {
+      x0 = Math.min(x0, minX[tile]); y0 = Math.min(y0, minY[tile]);
+      x1 = Math.max(x1, maxX[tile]); y1 = Math.max(y1, maxY[tile]);
+    }
+    return { x0, y0, x1, y1 };
+  };
+  const holes = groups.map(group => ({ group, ...bounds(group) })).filter(b =>
+    b.x0 > width * 0.86 && b.x1 - b.x0 < width * 0.045 &&
+    b.y1 - b.y0 < height * 0.035 && b.group.count / area < 0.0015 &&
+    b.group.count / ((b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1)) > 0.3);
+  for (const hole of holes) {
+    if (!holes.some(other => other !== hole && Math.abs(other.x0 - hole.x0) < width * 0.025 && Math.abs(other.y0 - hole.y0) > height * 0.12)) continue;
+    for (const tile of hole.group.tiles) tiles[tile] = 0;
+    count -= hole.group.count;
+    groups.splice(groups.indexOf(hole.group), 1);
+  }
+  const ink = count / area;
   groups.sort((a, b) => b.count - a.count);
   const dominant = groups[0],
     outsideInk = dominant ? (count - dominant.count) / area : 0;
