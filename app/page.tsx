@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import {
   FileStack,
   Settings2,
@@ -24,6 +24,9 @@ import {
   X,
   LoaderCircle,
 } from 'lucide-react';
+import { VirtualPageGrid } from '@/components/virtual-page-grid';
+import { Progress } from '@/components/ui/progress';
+import { canvasBlob, paintBeforeWork, exportMessage } from '@/lib/pdf/runtime';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Sheet,
@@ -51,6 +54,9 @@ import {
   renderPage,
   pageSize,
   type PageItem,
+  type AnalysisProgress,
+  releaseUnusedResources,
+  disposeResources,
 } from '@/lib/pdf/engine';
 const labels = {
   blank: 'Em branco',
@@ -64,6 +70,9 @@ export default function Home() {
     [selected, setSelected] = useState<Set<string>>(new Set()),
     [history, setHistory] = useState<PageItem[][]>([]),
     [busy, setBusy] = useState(''),
+    [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(
+      null,
+    ),
     [message, setMessage] = useState(''),
     [ocr, setOcr] = useState(true),
     [sensitive, setSensitive] = useState(false),
@@ -84,7 +93,23 @@ export default function Home() {
   const input = useRef<HTMLInputElement>(null),
     drag = useRef<string | null>(null),
     cancel = useRef(false),
-    locked = useRef(false);
+    locked = useRef(false),
+    previewUrl = useRef<string | null>(null),
+    previewRequest = useRef(0);
+  useEffect(() => {
+    releaseUnusedResources(pages, history);
+  }, [pages, history]);
+  useEffect(
+    () => () => {
+      disposeResources();
+      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    },
+    [],
+  );
+  const pageIndices = useMemo(
+    () => new Map(pages.map((p, i) => [p.id, i])),
+    [pages],
+  );
   const candidates = pages.filter(
       (p) => p.verdict && p.verdict.kind !== 'content',
     ),
@@ -115,6 +140,8 @@ export default function Home() {
     if (locked.current) return;
     locked.current = true;
     setBusy('Separando páginas…');
+    setAnalysisProgress(null);
+    await paintBeforeWork();
     try {
       const subset = pages.filter((p) =>
         rest ? !selected.has(p.id) : selected.has(p.id),
@@ -122,7 +149,7 @@ export default function Home() {
       if (!subset.length)
         throw new Error('Selecione um grupo de páginas primeiro.');
       saveBytes(
-        await exportPdf(subset),
+        await exportPdf(subset, (p) => setBusy(exportMessage(p))),
         `${name}-${rest ? 'restantes' : 'selecionadas'}.pdf`,
       );
       setMessage(`${subset.length} páginas exportadas em arquivo separado.`);
@@ -138,15 +165,19 @@ export default function Home() {
     locked.current = true;
     cancel.current = false;
     setBusy('Comprimindo…');
+    setAnalysisProgress(null);
+    await paintBeforeWork();
     try {
       const { PDFDocument } = await import('pdf-lib');
       const out = await PDFDocument.create();
-      const baseline = await exportPdf(pages);
+      const baseline = await exportPdf(pages, (p) => setBusy(exportMessage(p)));
       for (let i = 0; i < pages.length; i++) {
         if (cancel.current) throw new Error('Compressão cancelada.');
         setBusy(`Comprimindo página ${i + 1}/${pages.length}`);
         const canvas = await renderPage(pages[i], 1200);
-        const jpeg = await out.embedJpg(canvas.toDataURL('image/jpeg', 0.65));
+        const jpeg = await out.embedJpg(
+          await (await canvasBlob(canvas, 'image/jpeg', 0.65)).arrayBuffer(),
+        );
         const size = await pageSize(pages[i]);
         out
           .addPage(size)
@@ -186,6 +217,7 @@ export default function Home() {
     }
   };
   const update = (next: PageItem[]) => {
+    setAnalysisProgress(null);
     setHistory((h) => [...h.slice(-19), pages]);
     setPages(next);
   };
@@ -199,6 +231,8 @@ export default function Home() {
     if (!files?.length || locked.current) return;
     locked.current = true;
     setBusy('Abrindo documentos…');
+    setAnalysisProgress(null);
+    await paintBeforeWork();
     setMessage('');
     let added: PageItem[] = [];
     const errors: string[] = [];
@@ -276,16 +310,33 @@ export default function Home() {
     locked.current = true;
     cancel.current = false;
     setBusy('Preparando análise…');
+    const inputPages = pages.map((p) => ({ ...p, verdict: undefined }));
+    setPages(inputPages);
+    setAnalysisProgress({
+      current: 1,
+      completed: 0,
+      total: pages.length,
+      page: inputPages[0],
+      stage: 'Preparando análise',
+    });
+    await paintBeforeWork();
     setMessage('');
     try {
       const result = await analyze(
-        pages,
+        inputPages,
         { ocr, tolerance: sensitive ? 0.012 : 0.003, ignoreBorders, scanMode },
         setBusy,
         cancel,
+        (page, index) =>
+          setPages((current) => {
+            const next = [...current];
+            next[index] = page;
+            return next;
+          }),
+        setAnalysisProgress,
       );
       const indexed = new Map(result.pages.map((p) => [p.id, p]));
-      setPages(pages.map((p) => indexed.get(p.id) || p));
+      setPages(inputPages.map((p) => indexed.get(p.id) || p));
       setMessage(
         cancel.current
           ? 'Análise interrompida. Os resultados já obtidos foram mantidos.'
@@ -306,8 +357,10 @@ export default function Home() {
     if (locked.current || !pages.length) return;
     locked.current = true;
     setBusy('Gerando seu PDF…');
+    setAnalysisProgress(null);
+    await paintBeforeWork();
     try {
-      const bytes = await exportPdf(pages);
+      const bytes = await exportPdf(pages, (p) => setBusy(exportMessage(p)));
       const url = URL.createObjectURL(
         new Blob([bytes as BlobPart], { type: 'application/pdf' }),
       );
@@ -325,19 +378,33 @@ export default function Home() {
     }
   }
   async function inspect(p: PageItem, i: number) {
+    const request = ++previewRequest.current;
+    if (previewUrl.current) {
+      URL.revokeObjectURL(previewUrl.current);
+      previewUrl.current = null;
+    }
     setPreviewInfo(p.verdict);
     setPreviewTitle(`Página ${i + 1}`);
     setPreviewBusy(true);
     setPreview('');
     try {
       const canvas = await renderPage(p);
-      setPreview(canvas.toDataURL('image/webp', 0.95));
-      canvas.width = 0;
+      try {
+        const blob = await canvasBlob(canvas, 'image/webp', 0.95);
+        if (request === previewRequest.current) {
+          previewUrl.current = URL.createObjectURL(blob);
+          setPreview(previewUrl.current);
+        }
+      } finally {
+        canvas.width = 0;
+      }
     } catch {
-      setMessage('Não foi possível ampliar esta página.');
-      setPreview(null);
+      if (request === previewRequest.current) {
+        setMessage('Não foi possível ampliar esta página.');
+        setPreview(null);
+      }
     } finally {
-      setPreviewBusy(false);
+      if (request === previewRequest.current) setPreviewBusy(false);
     }
   }
   const state = useRef({ pages, busy });
@@ -470,6 +537,69 @@ export default function Home() {
           <Settings2 size={18} /> Configurações
         </button>
       </div>
+      {analysisProgress && (
+        <section className="analysis-live" aria-label="Progresso da análise">
+          <div className="live-thumb">
+            {analysisProgress.page.thumb ? (
+              <img
+                src={analysisProgress.page.thumb}
+                alt={`Página ${analysisProgress.current} em análise`}
+              />
+            ) : (
+              <FileStack size={30} />
+            )}
+          </div>
+          <div className="live-detail">
+            <div className="live-heading">
+              <strong>
+                {busy
+                  ? `Analisando imagem ${analysisProgress.current} de ${analysisProgress.total}`
+                  : analysisProgress.completed === analysisProgress.total
+                    ? 'Análise concluída'
+                    : 'Análise interrompida'}
+              </strong>
+              <span>
+                {analysisProgress.completed}/{analysisProgress.total} concluídas
+              </span>
+            </div>
+            <Progress
+              aria-label="Páginas concluídas"
+              value={
+                (analysisProgress.completed / analysisProgress.total) * 100
+              }
+            />
+            <p>
+              {analysisProgress.stage}
+              {analysisProgress.pageProgress !== undefined &&
+              analysisProgress.stage !== 'Concluída'
+                ? ` · ${analysisProgress.pageProgress}% nesta etapa`
+                : ''}
+            </p>
+            <span className="live-result">
+              {analysisProgress.page.verdict
+                ? labels[analysisProgress.page.verdict.kind]
+                : 'Os resultados aparecem nas miniaturas a cada página concluída.'}
+            </span>
+          </div>
+          {busy ? (
+            <button
+              className="secondary"
+              onClick={() => {
+                cancel.current = true;
+              }}
+            >
+              Parar após esta imagem
+            </button>
+          ) : (
+            <button
+              className="text-button"
+              onClick={() => setAnalysisProgress(null)}
+            >
+              Fechar
+            </button>
+          )}
+        </section>
+      )}
       <div className="editor-layout">
         <section
           className="document-area"
@@ -729,9 +859,18 @@ export default function Home() {
                 </span>
                 <span>Arraste para reorganizar</span>
               </div>
-              <div className={`page-grid ${dragOver ? 'drag-over' : ''}`}>
-                {shown.map((p) => {
-                  const i = pages.findIndex((x) => x.id === p.id);
+              <VirtualPageGrid
+                items={shown}
+                className={dragOver ? 'drag-over' : ''}
+                empty={
+                  <div className="no-results">
+                    <Check size={28} />
+                    <h3>Nenhuma página suspeita</h3>
+                    <p>Execute a análise ou volte para todas as páginas.</p>
+                  </div>
+                }
+                renderItem={(p) => {
+                  const i = pageIndices.get(p.id)!;
                   return (
                     <article
                       key={p.id}
@@ -818,15 +957,8 @@ export default function Home() {
                       )}
                     </article>
                   );
-                })}
-                {!shown.length && (
-                  <div className="no-results">
-                    <Check size={28} />
-                    <h3>Nenhuma página suspeita</h3>
-                    <p>Execute a análise ou volte para todas as páginas.</p>
-                  </div>
-                )}
-              </div>
+                }}
+              />
               <div className="document-foot">
                 <ShieldCheck size={14} /> O original permanece intacto. As
                 mudanças são aplicadas na exportação.
@@ -1026,7 +1158,12 @@ export default function Home() {
       <Dialog
         open={preview !== null}
         onOpenChange={(open) => {
-          if (!open) setPreview(null);
+          if (!open) {
+            previewRequest.current++;
+            if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+            previewUrl.current = null;
+            setPreview(null);
+          }
         }}
       >
         <DialogContent className="preview-dialog">

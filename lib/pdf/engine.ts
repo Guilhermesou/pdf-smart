@@ -1,3 +1,11 @@
+import {
+  canvasBlob,
+  paintBeforeWork,
+  yieldTask,
+  exportPayload,
+  pruneResources,
+  type ExportProgress,
+} from './runtime';
 import { recognizeScanStamp, looksLikeBleedThrough } from './scan';
 import {
   classify,
@@ -19,14 +27,40 @@ export type PageItem = {
   interiorInk?: number;
   verdict?: Verdict;
 };
-export type Source = { name: string; bytes: Uint8Array; doc: PDFDocumentProxy };
+export type Source = {
+  name: string;
+  file: File;
+  doc: PDFDocumentProxy;
+  destroy: () => Promise<void>;
+};
 export const sources = new Map<string, Source>();
+const thumbnailUrls = new Set<string>();
+export function releaseUnusedResources(
+  pages: PageItem[],
+  history: PageItem[][],
+) {
+  pruneResources(sources, thumbnailUrls, pages, history, (url) =>
+    URL.revokeObjectURL(url),
+  );
+}
+export function disposeResources() {
+  releaseUnusedResources([], []);
+}
+export type AnalysisProgress = {
+  current: number;
+  completed: number;
+  total: number;
+  page: PageItem;
+  stage: string;
+  pageProgress?: number;
+};
+
 export async function importPdf(file: File, progress: (s: string) => void) {
   const pdfjs = await import('pdfjs-dist');
   pdfjs.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
   const bytes = new Uint8Array(await file.arrayBuffer());
   const task = pdfjs.getDocument({
-    data: bytes.slice(),
+    data: bytes,
     cMapUrl: '/pdf/cmaps/',
     cMapPacked: true,
     standardFontDataUrl: '/pdf/standard_fonts/',
@@ -80,18 +114,41 @@ export async function importPdf(file: File, progress: (s: string) => void) {
         source,
         index,
         rotation: 0,
-        thumb: canvas.toDataURL('image/webp', 0.8),
+        thumb: '',
         text,
         ink,
         interiorInk,
       });
+      const thumb = document.createElement('canvas');
+      thumb.width = 220;
+      thumb.height = Math.max(
+        1,
+        Math.round((canvas.height / canvas.width) * 220),
+      );
+      thumb
+        .getContext('2d')!
+        .drawImage(canvas, 0, 0, thumb.width, thumb.height);
+      const url = URL.createObjectURL(await canvasBlob(thumb));
+      thumbnailUrls.add(url);
+      pages[pages.length - 1].thumb = url;
+      thumb.width = 0;
       canvas.width = 0;
       page.cleanup();
       await new Promise((r) => setTimeout(r, 0));
     }
-    sources.set(source, { name: file.name, bytes, doc });
+    await doc.cleanup();
+    sources.set(source, {
+      name: file.name,
+      file,
+      doc,
+      destroy: () => task.destroy(),
+    });
     return pages;
   } catch (e) {
+    for (const p of pages) {
+      URL.revokeObjectURL(p.thumb);
+      thumbnailUrls.delete(p.thumb);
+    }
     await task.destroy();
     throw e;
   }
@@ -113,14 +170,20 @@ export async function renderPage(p: PageItem, width = 1300) {
   });
   canvas.width = viewport.width;
   canvas.height = viewport.height;
-  await page.render({
-    canvas,
-    canvasContext: canvas.getContext('2d')!,
-    viewport,
-    background: 'rgb(255,255,255)',
-  }).promise;
-  page.cleanup();
-  return canvas;
+  try {
+    await page.render({
+      canvas,
+      canvasContext: canvas.getContext('2d')!,
+      viewport,
+      background: 'rgb(255,255,255)',
+    }).promise;
+    return canvas;
+  } catch (error) {
+    canvas.width = 0;
+    throw error;
+  } finally {
+    page.cleanup();
+  }
 }
 export async function analyze(
   pages: PageItem[],
@@ -132,11 +195,28 @@ export async function analyze(
   },
   onProgress: (s: string) => void,
   cancel: { current: boolean },
+  onPage?: (page: PageItem, index: number) => void,
+  onDetail?: (progress: AnalysisProgress) => void,
 ) {
   let worker:
     | Awaited<ReturnType<(typeof import('tesseract.js'))['createWorker']>>
     | undefined;
   const result: PageItem[] = [];
+  let lastDetailTime = 0;
+  const detail = (stage: string, pageProgress?: number, force = false) => {
+    const now = performance.now();
+    if (force || now - lastDetailTime > 100) {
+      lastDetailTime = now;
+      onDetail?.({
+        current: activePage,
+        completed: result.length,
+        total: pages.length,
+        page: result[activePage - 1] ?? pages[activePage - 1],
+        stage,
+        pageProgress,
+      });
+    }
+  };
   let failed = 0,
     ocrUnavailable = false,
     activePage = 0;
@@ -146,6 +226,8 @@ export async function analyze(
       const p = pages[i];
       activePage = i + 1;
       onProgress(`Analisando página ${i + 1} de ${pages.length}`);
+      detail('Inspeção visual', undefined, true);
+      await yieldTask();
       const ink = options.ignoreBorders ? (p.interiorInk ?? p.ink) : p.ink;
       let ocrStatus: Verdict['ocrStatus'] = options.ocr
         ? 'not-needed'
@@ -160,6 +242,7 @@ export async function analyze(
             throw new Error('OCR indisponível nesta análise.');
           if (!worker) {
             onProgress('Preparando reconhecimento de carimbos…');
+            detail('Preparando OCR', undefined, true);
             const { createWorker, PSM } = await import('tesseract.js');
             worker = await createWorker('eng', 1, {
               workerPath: new URL('/ocr/worker.min.js', window.location.origin)
@@ -167,8 +250,9 @@ export async function analyze(
               corePath: new URL('/ocr/core', window.location.origin).href,
               errorHandler: () => {},
               logger: (event) =>
-                onProgress(
-                  `OCR · página ${activePage}/${pages.length} · ${Math.round(event.progress * 100)}%`,
+                detail(
+                  'Reconhecimento de texto',
+                  Math.min(100, Math.max(0, Math.round(event.progress * 100))),
                 ),
               langPath: 'https://tessdata.projectnaptha.com/4.0.0',
             });
@@ -177,29 +261,32 @@ export async function analyze(
             });
           }
           const canvas = await renderPage({ ...p, rotation: 0 }, 1500);
-          const recognized = options.scanMode
-            ? await recognizeScanStamp(
-                worker,
-                canvas,
-                (w, h) => {
-                  const c = document.createElement('canvas');
-                  c.width = w;
-                  c.height = h;
-                  return c;
-                },
-                withoutPageNumbers(p.text),
-                () => cancel.current,
-              )
-            : { ...(await worker.recognize(canvas)), review: false };
-          const { data } = recognized;
-          scanReview = recognized.review;
-          if ('scan' in recognized) scanMetrics = recognized.scan;
-          // Preserve extracted native text; OCR must not erase real content.
-          const nativeText = withoutPageNumbers(p.text);
-          text = nativeText ? nativeText + '\n' + data.text : data.text;
-          ocrStatus = 'done';
-          confidence = data.confidence;
-          canvas.width = 0;
+          try {
+            const recognized = options.scanMode
+              ? await recognizeScanStamp(
+                  worker,
+                  canvas,
+                  (w, h) => {
+                    const c = document.createElement('canvas');
+                    c.width = w;
+                    c.height = h;
+                    return c;
+                  },
+                  withoutPageNumbers(p.text),
+                  () => cancel.current,
+                )
+              : { ...(await worker.recognize(canvas)), review: false };
+            const { data } = recognized;
+            scanReview = recognized.review;
+            if ('scan' in recognized) scanMetrics = recognized.scan;
+            // Preserve extracted native text; OCR must not erase real content.
+            const nativeText = withoutPageNumbers(p.text);
+            text = nativeText ? nativeText + '\n' + data.text : data.text;
+            ocrStatus = 'done';
+            confidence = data.confidence;
+          } finally {
+            canvas.width = 0;
+          }
         } catch {
           failed++;
           ocrStatus = 'failed';
@@ -237,6 +324,8 @@ export async function analyze(
         last.verdict.reason =
           'Interior vazio; marcas nas bordas foram desconsideradas. Revise a página inteira.';
       }
+      onPage?.(last, i);
+      detail('Concluída', 100, true);
       await new Promise((r) => setTimeout(r, 0));
     }
   } finally {
@@ -244,12 +333,20 @@ export async function analyze(
   }
   return { pages: result, failed };
 }
-export function exportPdf(pages: PageItem[]) {
+export async function exportPdf(
+  pages: PageItem[],
+  onProgress?: (progress: ExportProgress) => void,
+) {
+  await paintBeforeWork();
   return new Promise<Uint8Array>((resolve, reject) => {
     const worker = new Worker(new URL('./export.worker.ts', import.meta.url), {
       type: 'module',
     });
     worker.onmessage = (e) => {
+      if (e.data.progress) {
+        onProgress?.(e.data.progress);
+        return;
+      }
       worker.terminate();
       if (e.data.error) reject(new Error(e.data.error));
       else resolve(e.data.bytes);
@@ -258,15 +355,12 @@ export function exportPdf(pages: PageItem[]) {
       worker.terminate();
       reject(new Error('Não foi possível gerar o PDF.'));
     };
-    worker.postMessage({
-      pages,
-      sources: Object.fromEntries(
-        [...new Set(pages.map((p) => p.source).filter(Boolean))].map((id) => [
-          id,
-          sources.get(id!)!.bytes,
-        ]),
-      ),
-    });
+    try {
+      worker.postMessage(exportPayload(pages, sources));
+    } catch (e) {
+      worker.terminate();
+      reject(e);
+    }
   });
 }
 

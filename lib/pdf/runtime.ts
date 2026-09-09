@@ -1,0 +1,113 @@
+/** Let React commit and the browser paint before starting a costly operation. */
+export function paintBeforeWork(): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (!done) {
+        done = true;
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+    const timer = setTimeout(finish, 100);
+    if (typeof requestAnimationFrame === 'function')
+      requestAnimationFrame(() => requestAnimationFrame(finish));
+    else setTimeout(finish, 0);
+  });
+}
+export function canvasBlob(
+  canvas: HTMLCanvasElement,
+  type = 'image/webp',
+  quality = 0.8,
+): Promise<Blob> {
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(
+      (blob) =>
+        blob
+          ? resolve(blob)
+          : reject(new Error('Não foi possível preparar a imagem.')),
+      type,
+      quality,
+    ),
+  );
+}
+export type ExportProgress = {
+  phase: 'loading' | 'copying' | 'saving';
+  completed: number;
+  total: number;
+};
+export function exportMessage(progress: ExportProgress) {
+  return progress.phase === 'loading'
+    ? `Lendo arquivo para exportação · ${progress.completed}/${progress.total} páginas`
+    : progress.phase === 'saving'
+      ? 'Finalizando arquivo PDF…'
+      : `Montando PDF · ${progress.completed}/${progress.total} páginas`;
+}
+
+export function yieldTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+export type ExportPageRef = {
+  source: string | null;
+  index: number;
+  rotation: number;
+};
+export function exportPayload(
+  pages: ExportPageRef[],
+  sources: Map<string, { file: Blob }>,
+) {
+  const refs = pages.map(({ source, index, rotation }) => ({
+    source,
+    index,
+    rotation,
+  }));
+  const files: Record<string, Blob> = {};
+  for (const page of refs)
+    if (page.source && !files[page.source]) {
+      const file = sources.get(page.source)?.file;
+      if (!file) throw new Error('Arquivo de origem indisponível.');
+      files[page.source] = file;
+    }
+  return { pages: refs, sources: files };
+}
+export function virtualWindow(
+  total: number,
+  columns: number,
+  rowHeight: number,
+  top: number,
+  height: number,
+) {
+  const rows = Math.ceil(total / columns),
+    startRow = Math.max(
+      0,
+      Math.min(Math.max(0, rows - 1), Math.floor(top / rowHeight) - 1),
+    ),
+    endRow = Math.min(rows, Math.ceil((top + height) / rowHeight) + 1);
+  return {
+    start: startRow * columns,
+    end: Math.max(startRow * columns, Math.min(total, endRow * columns)),
+    offset: startRow * rowHeight,
+    height: rows * rowHeight,
+  };
+}
+export function pruneResources(
+  sources: Map<string, { destroy: () => Promise<void> }>,
+  urls: Set<string>,
+  pages: { source: string | null; thumb: string }[],
+  history: { source: string | null; thumb: string }[][],
+  revoke: (url: string) => void,
+) {
+  const retained = [...pages, ...history.flat()],
+    ids = new Set(retained.map((p) => p.source)),
+    retainedUrls = new Set(retained.map((p) => p.thumb));
+  for (const [id, source] of sources)
+    if (!ids.has(id)) {
+      sources.delete(id);
+      void source.destroy().catch(() => {});
+    }
+  for (const url of urls)
+    if (!retainedUrls.has(url)) {
+      revoke(url);
+      urls.delete(url);
+    }
+}

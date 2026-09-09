@@ -11,8 +11,17 @@ export function scanRegion(
   const cell = Math.max(8, Math.round(width / 40));
   const cols = Math.ceil(width / cell),
     rows = Math.ceil(height / cell);
-  const tiles = new Uint32Array(cols * rows),
-    points: [number, number][] = [];
+  const tiles = new Uint32Array(cols * rows);
+  const minX = new Float64Array(tiles.length).fill(right),
+    minY = new Float64Array(tiles.length).fill(bottom),
+    maxX = new Float64Array(tiles.length).fill(left),
+    maxY = new Float64Array(tiles.length).fill(top);
+  const sumX = new Float64Array(tiles.length),
+    sumY = new Float64Array(tiles.length),
+    sumXX = new Float64Array(tiles.length),
+    sumYY = new Float64Array(tiles.length),
+    sumXY = new Float64Array(tiles.length);
+  let count = 0;
   let paleCount = 0;
   for (let y = top; y < bottom; y++)
     for (let x = left; x < right; x++) {
@@ -22,12 +31,21 @@ export function scanRegion(
         (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) * alpha +
         255 * (1 - alpha);
       if (gray < 175) {
-        points.push([x, y]);
-        tiles[Math.floor(y / cell) * cols + Math.floor(x / cell)]++;
+        const tile = Math.floor(y / cell) * cols + Math.floor(x / cell);
+        tiles[tile]++;
+        count++;
+        minX[tile] = Math.min(minX[tile], x);
+        minY[tile] = Math.min(minY[tile], y);
+        maxX[tile] = Math.max(maxX[tile], x);
+        maxY[tile] = Math.max(maxY[tile], y);
+        sumX[tile] += x;
+        sumY[tile] += y;
+        sumXX[tile] += x * x;
+        sumYY[tile] += y * y;
+        sumXY[tile] += x * y;
       } else if (gray < 247) paleCount++;
     }
   const area = (right - left) * (bottom - top),
-    count = points.length,
     ink = count / area;
   // Group nearby strokes; small, distant specks must not enlarge the stamp crop.
   const visited = new Uint8Array(tiles.length),
@@ -69,16 +87,12 @@ export function scanRegion(
     y0 = bottom,
     x1 = left,
     y1 = top;
-  for (const [x, y] of points) {
-    if (
-      useDominant &&
-      !dominant.tiles.has(Math.floor(y / cell) * cols + Math.floor(x / cell))
-    )
-      continue;
-    x0 = Math.min(x0, x);
-    x1 = Math.max(x1, x);
-    y0 = Math.min(y0, y);
-    y1 = Math.max(y1, y);
+  for (let tile = 0; tile < tiles.length; tile++) {
+    if (!tiles[tile] || (useDominant && !dominant.tiles.has(tile))) continue;
+    x0 = Math.min(x0, minX[tile]);
+    x1 = Math.max(x1, maxX[tile]);
+    y0 = Math.min(y0, minY[tile]);
+    y1 = Math.max(y1, maxY[tile]);
   }
   const box = count
     ? { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 }
@@ -90,21 +104,14 @@ export function scanRegion(
     syy = 0,
     sxy = 0,
     n = 0;
-  for (const [x, y] of points) {
-    if (
-      box &&
-      (x < box.x ||
-        x >= box.x + box.width ||
-        y < box.y ||
-        y >= box.y + box.height)
-    )
-      continue;
-    n++;
-    sx += x;
-    sy += y;
-    sxx += x * x;
-    syy += y * y;
-    sxy += x * y;
+  for (let tile = 0; tile < tiles.length; tile++) {
+    if (!tiles[tile] || (useDominant && !dominant.tiles.has(tile))) continue;
+    n += tiles[tile];
+    sx += sumX[tile];
+    sy += sumY[tile];
+    sxx += sumXX[tile];
+    syy += sumYY[tile];
+    sxy += sumXY[tile];
   }
   const axis = n
     ? (0.5 *
