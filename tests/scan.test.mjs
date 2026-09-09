@@ -43,3 +43,31 @@ test('possible bleed-through is a review signal, not a parity assumption', async
   assert.equal(looksLikeBleedThrough(true, 0.002, 0.001), false);
   assert.equal(looksLikeBleedThrough(false, 0.002, 0.04), false);
 });
+
+test('scan review inspects searchable scans without treating extracted text as proof of visible content', async () => {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const { recognizeScanStamp } = await import('../lib/pdf/scan.ts');
+  const c = createCanvas(400, 600), ctx = c.getContext('2d');
+  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 400, 600);
+  ctx.fillStyle = '#aaa'; ctx.fillRect(200, 260, 6, 50);
+  const extracted = 'Texto da frente reconhecido na camada OCR. '.repeat(30);
+  const worker = { recognize: async () => ({ data: { text: 'EM BRANCO', confidence: 95 } }) };
+  const result = await recognizeScanStamp(worker, c, createCanvas, extracted, () => false, true);
+  assert.equal(result.review, true);
+  assert.equal(scanNeedsReview(extracted, .003, .6, true), false);
+  assert.equal(scanNeedsReview(extracted, .03, .1, true), false);
+  assert.equal(scanNeedsReview(extracted, .003, .1), false);
+});
+
+test('wide colored binding is ignored but a dark writing block is retained', async () => {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  const c = createCanvas(400, 600), ctx = c.getContext('2d');
+  ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 400, 600);
+  ctx.fillStyle = '#a95228'; ctx.fillRect(0, 0, 80, 600);
+  ctx.fillStyle = '#333'; ctx.fillRect(200, 260, 6, 50);
+  let s = scanRegion(ctx.getImageData(0, 0, 400, 600).data, 400, 600);
+  assert.equal(scanNeedsReview('OCR', s.ink, s.boxArea, true), true);
+  ctx.fillRect(100, 80, 200, 180);
+  s = scanRegion(ctx.getImageData(0, 0, 400, 600).data, 400, 600);
+  assert.equal(scanNeedsReview('OCR', s.ink, s.boxArea, true), false);
+});

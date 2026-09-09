@@ -4,8 +4,20 @@ export function scanRegion(
   width: number,
   height: number,
 ) {
-  const left = Math.floor(width * 0.12),
-    right = Math.ceil(width * 0.94),
+  let left = Math.floor(width * 0.12);
+  // Extend only through a continuous colored binding strip at the left edge.
+  // Ordinary dark text or a white margin cannot trigger this extension.
+  for (; left < Math.floor(width * 0.25); left++) {
+    let colored = 0, samples = 0;
+    for (let y = Math.floor(height * 0.04); y < height * 0.96; y += 4) {
+      const i = (y * width + left) * 4;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if (data[i + 3] > 240 && Math.max(r, g, b) - Math.min(r, g, b) > 30 && (r + g + b) / 3 < 210) colored++;
+      samples++;
+    }
+    if (colored / Math.max(1, samples) < 0.75) break;
+  }
+  const right = Math.ceil(width * 0.94),
     top = Math.floor(height * 0.04),
     bottom = Math.ceil(height * 0.96);
   const cell = Math.max(8, Math.round(width / 40));
@@ -128,8 +140,9 @@ export function scanNeedsReview(
   nativeText: string,
   ink: number,
   boxArea: number,
+  inspectExtractedText = false,
 ) {
-  return !nativeText.trim() && ink < 0.012 && boxArea < 0.2;
+  return (inspectExtractedText || !nativeText.trim()) && ink < 0.012 && boxArea < 0.2;
 }
 
 export function hasBlankStamp(text: string) {
@@ -156,6 +169,7 @@ export async function recognizeScanStamp(
   create: (width: number, height: number) => HTMLCanvasElement,
   nativeText: string,
   cancelled: () => boolean,
+  inspectExtractedText = false,
 ) {
   const ctx = canvas.getContext('2d')!;
   const scan = scanRegion(
@@ -163,7 +177,7 @@ export async function recognizeScanStamp(
     canvas.width,
     canvas.height,
   );
-  const review = scanNeedsReview(nativeText, scan.ink, scan.boxArea);
+  const review = scanNeedsReview(nativeText, scan.ink, scan.boxArea, inspectExtractedText);
   let target = canvas;
   if (review && scan.box) {
     const b = scan.box;

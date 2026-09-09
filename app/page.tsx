@@ -1007,8 +1007,8 @@ export default function Home() {
               <div>
                 <strong>Folhas digitalizadas</strong>
                 <span>
-                  Carimbos inclinados, furos e transparência da frente. Pode
-                  sugerir páginas com assinaturas; revise.
+                  Confere a imagem mesmo quando o PDF já tem texto de OCR.
+                  Carimbos, furos e transparência da frente geram sugestões para revisão.
                 </span>
               </div>
               <Switch

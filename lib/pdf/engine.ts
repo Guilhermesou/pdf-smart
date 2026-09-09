@@ -6,7 +6,7 @@ import {
   pruneResources,
   type ExportProgress,
 } from './runtime';
-import { recognizeScanStamp, looksLikeBleedThrough } from './scan';
+import { recognizeScanStamp, looksLikeBleedThrough, scanRegion, scanNeedsReview } from './scan';
 import {
   classify,
   measureInk,
@@ -236,7 +236,23 @@ export async function analyze(
       let scanMetrics: { ink: number; paleInk: number } | undefined;
       let text = p.text,
         confidence = 100;
-      if (options.ocr && shouldRunOcr(text, ink) && p.source) {
+      // Searchable scans can contain an OCR layer describing bleed-through.
+      // Inspect rendered evidence before applying the extracted-text OCR gate.
+      if (options.scanMode && p.source) {
+        const visual = await renderPage({ ...p, rotation: 0 }, 700);
+        try {
+          const metrics = scanRegion(
+            visual.getContext('2d')!.getImageData(0, 0, visual.width, visual.height).data,
+            visual.width,
+            visual.height,
+          );
+          scanReview = scanNeedsReview(withoutPageNumbers(p.text), metrics.ink, metrics.boxArea, true);
+          scanMetrics = metrics;
+        } finally {
+          visual.width = 0;
+        }
+      }
+      if (options.ocr && (scanReview || shouldRunOcr(text, ink)) && p.source) {
         try {
           if (ocrUnavailable)
             throw new Error('OCR indisponível nesta análise.');
@@ -274,6 +290,7 @@ export async function analyze(
                   },
                   withoutPageNumbers(p.text),
                   () => cancel.current,
+                  true,
                 )
               : { ...(await worker.recognize(canvas)), review: false };
             const { data } = recognized;
@@ -318,6 +335,11 @@ export async function analyze(
         last.verdict.kind = 'bleed';
         last.verdict.reason =
           'Predominam marcas claras com poucos traços escuros concentrados. Pode ser transparência da frente, mas também conteúdo desbotado: confira a página inteira antes de excluir.';
+      }
+      if (scanReview && withoutPageNumbers(p.text).trim() && last.verdict && last.verdict.kind !== 'content') {
+        last.verdict.kind = 'bleed';
+        last.verdict.reason =
+          'Imagem com poucas marcas escuras, mas o PDF contém texto extraído. Pode ser OCR da transparência da frente ou conteúdo claro: revise a página inteira.';
       }
       if (last.verdict?.kind === 'blank' && p.ink - ink > 0.001) {
         last.verdict.kind = 'sparse';

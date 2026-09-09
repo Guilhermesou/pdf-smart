@@ -48,3 +48,9 @@ A análise mostra a miniatura atual, a etapa, o progresso do OCR e o total concl
 A análise de scans acumula momentos e limites em buffers por região, sem criar um par de coordenadas JavaScript para cada pixel escuro. Canvas temporários e URLs de ampliação são liberados após o uso. Isso reduz alocações, mas não garante memória constante nem ausência de pausas em qualquer dispositivo.
 
 Validação: 18 testes automatizados incluem transporte, janela virtual, retenção do desfazer, descarte de recursos e compartilhamento de fontes na exportação. As quatro imagens reais mantiveram a classificação anterior após a otimização. O benchmark `node --expose-gc --experimental-strip-types tests/transport-benchmark.mjs`, com fixture sintética de 64 MiB e 600 registros, mediu mediana de structuredClone de 20,06 ms para o payload antigo e 0,35 ms para o novo. Isso mede apenas transporte no Node, não tempo total de exportação ou memória no navegador. A redução de dimensões da miniatura corresponde a cerca de 81% menos pixels por imagem, sem representar uma medição da memória total da aplicação.
+
+### PDFs com camada OCR preexistente
+
+No modo Folhas digitalizadas, a inspeção visual ocorre mesmo quando o texto extraído é longo. Texto extraído não prova que a escrita esteja visível: a camada OCR pode descrever transparência do outro lado. Poucas marcas escuras concentradas com texto extraído geram Possível verso para revisão, preservando o texto no diagnóstico. No modo normal, o texto continua bloqueando a sugestão visual. Uma faixa colorida contínua de encadernação pode estender a margem esquerda analisada de 12% até 25%; blocos de texto escuro não acionam essa extensão. Nenhum desses critérios depende de paridade.
+
+A captura de tela de 12 miniaturas fornecida pelo usuário produziu seis sugestões de verso e seis páginas com conteúdo na inspeção visual. Essa verificação de imagens reduzidas não valida a detecção nas 382 páginas do PDF original.
