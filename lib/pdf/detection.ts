@@ -92,18 +92,27 @@ export function classify(
     };
   return { kind: 'content', reason: 'Conteúdo visual presente.', ink };
 }
-export function measureInk(data: Uint8ClampedArray) {
+export function measureInk(
+  data: Uint8ClampedArray,
+  width = data.length / 4,
+  height = 1,
+  border = 0,
+) {
   const histogram = new Uint32Array(256);
   let count = 0;
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3] / 255;
-    const gray = Math.round(
-      (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) * a +
-        255 * (1 - a),
-    );
-    histogram[gray]++;
-    count++;
-  }
+  const bx = Math.floor(width * border),
+    by = Math.floor(height * border);
+  for (let y = by; y < height - by; y++)
+    for (let x = bx; x < width - bx; x++) {
+      const i = (y * width + x) * 4;
+      const a = data[i + 3] / 255;
+      const gray = Math.round(
+        (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) * a +
+          255 * (1 - a),
+      );
+      histogram[gray]++;
+      count++;
+    }
   let sum = 0,
     bg = 255;
   for (let i = 255; i >= 0; i--) {
@@ -126,17 +135,5 @@ export function measureInteriorInk(
   width: number,
   height: number,
 ) {
-  const borderX = Math.floor(width * 0.03),
-    borderY = Math.floor(height * 0.03),
-    innerWidth = width - 2 * borderX;
-  const inner = new Uint8ClampedArray(innerWidth * (height - 2 * borderY) * 4);
-  for (let y = borderY; y < height - borderY; y++)
-    inner.set(
-      data.subarray(
-        (y * width + borderX) * 4,
-        (y * width + width - borderX) * 4,
-      ),
-      (y - borderY) * innerWidth * 4,
-    );
-  return measureInk(inner);
+  return measureInk(data, width, height, 0.03);
 }

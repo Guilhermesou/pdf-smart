@@ -560,6 +560,10 @@ export default function Home() {
               </strong>
               <span>
                 {analysisProgress.completed}/{analysisProgress.total} concluídas
+                {analysisProgress.elapsedSeconds !== undefined &&
+                  ` · ${Math.floor(analysisProgress.elapsedSeconds / 60)}min ${analysisProgress.elapsedSeconds % 60}s`}
+                {!!analysisProgress.cachedPages &&
+                  ` · ${analysisProgress.cachedPages} com leitura reaproveitada`}
               </span>
             </div>
             <Progress
@@ -1008,7 +1012,8 @@ export default function Home() {
                 <strong>Folhas digitalizadas</strong>
                 <span>
                   Confere a imagem mesmo quando o PDF já tem texto de OCR.
-                  Carimbos, furos e transparência da frente geram sugestões para revisão.
+                  Carimbos, furos e transparência da frente geram sugestões para
+                  revisão.
                 </span>
               </div>
               <Switch

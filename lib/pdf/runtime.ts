@@ -97,9 +97,14 @@ export function pruneResources(
   history: { source: string | null; thumb: string }[][],
   revoke: (url: string) => void,
 ) {
-  const retained = [...pages, ...history.flat()],
-    ids = new Set(retained.map((p) => p.source)),
-    retainedUrls = new Set(retained.map((p) => p.thumb));
+  const ids = new Set<string | null>(),
+    retainedUrls = new Set<string>();
+  const retain = (page: { source: string | null; thumb: string }) => {
+    ids.add(page.source);
+    retainedUrls.add(page.thumb);
+  };
+  pages.forEach(retain);
+  for (const snapshot of history) snapshot.forEach(retain);
   for (const [id, source] of sources)
     if (!ids.has(id)) {
       sources.delete(id);

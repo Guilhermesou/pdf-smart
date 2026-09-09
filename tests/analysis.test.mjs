@@ -1,0 +1,126 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+// Match the bundler's extensionless local TypeScript imports in Node tests.
+registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier.startsWith('.') && !/\.[a-z]+$/.test(specifier)) {
+      try {
+        return next(specifier + '.ts', context);
+      } catch {}
+    }
+    return next(specifier, context);
+  },
+});
+const { analyzePages } = await import('../lib/pdf/analysis.ts');
+const { AnalysisCache, analysisCache } =
+  await import('../lib/pdf/analysis-cache.ts');
+const page = {
+  id: 'p',
+  source: 'fixture',
+  index: 0,
+  rotation: 0,
+  text: '',
+  thumb: '',
+  ink: 0.002,
+};
+const visual = {
+  ink: 0.002,
+  paleInk: 0.04,
+  boxArea: 0.02,
+  box: null,
+  outsideInk: 0,
+  axis: 0,
+};
+
+test('cached OCR avoids rendering and worker setup; current settings still determine verdict', async () => {
+  analysisCache.retainSources(new Set());
+  analysisCache.set('fixture:0', {
+    visual,
+    scanOcr: {
+      data: { text: 'EM BRANCO', confidence: 95 },
+      review: true,
+      scan: visual,
+    },
+  });
+  const details = [];
+  const result = await analyzePages(
+    [page],
+    { ocr: true, scanMode: true, tolerance: 0.003 },
+    () => {},
+    { current: false },
+    undefined,
+    (d) => details.push(d),
+    async () => {
+      throw Error('Cache should avoid rendering');
+    },
+  );
+  assert.equal(result.pages[0].verdict.kind, 'stamp');
+  assert.equal(details.at(-1).completed, 1);
+  assert.equal(details.at(-1).cachedPages, 1);
+  assert.equal(details.at(-1).page.verdict.kind, 'stamp');
+  assert.ok(details.at(-1).elapsedSeconds >= 0);
+  const normal = await analyzePages(
+    [page],
+    { ocr: false, scanMode: false, tolerance: 0.001 },
+    () => {},
+    { current: false },
+    undefined,
+    undefined,
+    async () => {
+      throw Error('Not needed');
+    },
+  );
+  assert.equal(normal.pages[0].verdict.kind, 'content');
+  assert.equal(normal.pages[0].verdict.ocrStatus, 'disabled');
+});
+
+test('cancelled analysis preserves completed results and does not start another page', async () => {
+  const cancel = { current: false };
+  const result = await analyzePages(
+    [page, { ...page, id: 'p2' }],
+    { ocr: false, tolerance: 0.003 },
+    () => {},
+    cancel,
+    () => {
+      cancel.current = true;
+    },
+    undefined,
+    async () => {
+      throw Error('Not needed');
+    },
+  );
+  assert.equal(result.pages.length, 1);
+});
+
+test('evidence cache is bounded, discards large OCR internals, and releases removed sources', () => {
+  const cache = new AnalysisCache(2);
+  cache.set('a:0', {
+    scanOcr: {
+      data: {
+        text: 'EM BRANCO',
+        confidence: 90,
+        hugeBuffer: new Uint8Array(1000),
+      },
+      review: true,
+    },
+  });
+  assert.deepEqual(Object.keys(cache.get('a:0').scanOcr.data), [
+    'text',
+    'confidence',
+  ]);
+  cache.set('a:1', { visual });
+  cache.set('b:0', { visual });
+  assert.equal(cache.get('a:0'), undefined);
+  cache.retainSources(new Set(['b']));
+  assert.equal(cache.get('a:1'), undefined);
+  cache.set('b:1', {
+    plainOcr: {
+      data: { text: 'x'.repeat(4001), confidence: 90 },
+      review: false,
+    },
+    visual,
+  });
+  assert.equal(cache.get('b:1').plainOcr, undefined);
+  assert.deepEqual(cache.get('b:1').visual, visual);
+});
