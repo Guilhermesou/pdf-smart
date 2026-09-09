@@ -124,3 +124,33 @@ test('evidence cache is bounded, discards large OCR internals, and releases remo
   assert.equal(cache.get('b:1').plainOcr, undefined);
   assert.deepEqual(cache.get('b:1').visual, visual);
 });
+
+test('bypass cache forces fresh visual measurement and reports rendering separately', async () => {
+  const { createCanvas } = await import('@napi-rs/canvas');
+  let renders = 0,
+    last;
+  analysisCache.set('fixture:0', { visual });
+  await analyzePages(
+    [page],
+    { ocr: false, scanMode: true, tolerance: 0.003, bypassCache: true },
+    () => {},
+    { current: false },
+    undefined,
+    (detail) => {
+      last = detail;
+    },
+    async () => {
+      renders++;
+      const canvas = createCanvas(100, 140);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, 100, 140);
+      return canvas;
+    },
+  );
+  assert.equal(renders, 1);
+  assert.equal(last.cachedPages, 0);
+  assert.ok(last.timings.renderMs >= 0);
+  assert.equal(last.timings.ocrMs, 0);
+  assert.equal(last.ocrDiagnostics, undefined);
+});

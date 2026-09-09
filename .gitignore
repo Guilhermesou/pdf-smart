@@ -38,3 +38,7 @@ next-env.d.ts
 /work/
 
 *.tsbuildinfo
+
+/dist-desktop/
+/src-tauri/target/
+/src-tauri/binaries/pdf-smart-ocr-*

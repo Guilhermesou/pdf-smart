@@ -78,7 +78,10 @@ export default function Home() {
     [sensitive, setSensitive] = useState(false),
     [ignoreBorders, setIgnoreBorders] = useState(true),
     [scanMode, setScanMode] = useState(true),
+    [ocrEngine, setOcrEngine] = useState<'auto' | 'tesseract'>('auto'),
+    [bypassCache, setBypassCache] = useState(false),
     [settingsOpen, setSettingsOpen] = useState(false),
+    [clearOpen, setClearOpen] = useState(false),
     [toolDialog, setToolDialog] = useState<'split' | 'compress' | null>(null),
     [rasterAccepted, setRasterAccepted] = useState(false),
     [range, setRange] = useState(''),
@@ -281,8 +284,39 @@ export default function Home() {
     ]);
     setFilter(false);
   }
+  function clearDocument() {
+    if (locked.current || previewBusy) return;
+    previewRequest.current++;
+    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    previewUrl.current = null;
+    setPreview(null);
+    setPreviewInfo(undefined);
+    setPreviewTitle('');
+    setPages([]);
+    setHistory([]);
+    setSelected(new Set());
+    setFilter(false);
+    setRange('');
+    setRangeError('');
+    setAnalysisProgress(null);
+    setName('documento');
+    setDragOver(false);
+    setToolDialog(null);
+    setRasterAccepted(false);
+    setClearOpen(false);
+    cancel.current = false;
+    drag.current = null;
+    if (input.current) input.current.value = '';
+    setMessage('Documento limpo. Abra outro PDF para continuar.');
+  }
   function remove() {
-    update(pages.filter((p) => !selected.has(p.id)));
+    const remaining = pages.filter((p) => !selected.has(p.id));
+    update(remaining);
+    if (
+      filter &&
+      !remaining.some((p) => p.verdict && p.verdict.kind !== 'content')
+    )
+      setFilter(false);
     setMessage(`${selected.size} páginas removidas. Você pode desfazer.`);
     setSelected(new Set());
   }
@@ -324,7 +358,14 @@ export default function Home() {
     try {
       const result = await analyze(
         inputPages,
-        { ocr, tolerance: sensitive ? 0.012 : 0.003, ignoreBorders, scanMode },
+        {
+          ocr,
+          tolerance: sensitive ? 0.012 : 0.003,
+          ignoreBorders,
+          scanMode,
+          ocrEngine,
+          bypassCache,
+        },
         setBusy,
         cancel,
         (page, index) =>
@@ -530,6 +571,12 @@ export default function Home() {
           <Minimize2 size={18} /> Comprimir
         </button>
         <div className="tool-spacer" />
+        <button
+          disabled={(!pages.length && !history.length) || !!busy || previewBusy}
+          onClick={() => setClearOpen(true)}
+        >
+          <X size={18} /> Limpar documento
+        </button>
         <button disabled={!pages.length || !!busy} onClick={runAnalysis}>
           <ScanLine size={18} /> Detectar folhas em branco
         </button>
@@ -579,6 +626,58 @@ export default function Home() {
                 ? ` · ${analysisProgress.pageProgress}% nesta etapa`
                 : ''}
             </p>
+            <details>
+              <summary>
+                Motor utilizado:{' '}
+                {analysisProgress.ocrDiagnostics?.appleCalls
+                  ? 'Apple Vision'
+                  : analysisProgress.ocrDiagnostics?.tesseractCalls
+                    ? 'Tesseract'
+                    : 'nenhuma leitura OCR nova'}
+                {!!analysisProgress.ocrDiagnostics?.appleCalls &&
+                  !!analysisProgress.ocrDiagnostics?.tesseractCalls &&
+                  ' + Tesseract (fallback)'}
+              </summary>
+              <p>
+                Leituras, incluindo tentativas de rotação: Apple{' '}
+                {analysisProgress.ocrDiagnostics?.appleCalls ?? 0} · Tesseract{' '}
+                {analysisProgress.ocrDiagnostics?.tesseractCalls ?? 0}.
+              </p>
+              <p>
+                Neural Engine solicitado em{' '}
+                {analysisProgress.ocrDiagnostics?.neuralRequests ?? 0} leituras.
+                Isso não mede o uso físico da NPU.
+              </p>
+              {analysisProgress.timings && (
+                <p>
+                  Renderização:{' '}
+                  {(analysisProgress.timings.renderMs / 1000).toFixed(1)}s ·
+                  Preparação do motor:{' '}
+                  {(analysisProgress.timings.setupMs / 1000).toFixed(1)}s ·
+                  Inspeção visual:{' '}
+                  {(analysisProgress.timings.visualMs / 1000).toFixed(1)}s · OCR
+                  e recortes:{' '}
+                  {(analysisProgress.timings.ocrMs / 1000).toFixed(1)}s.
+                </p>
+              )}
+              {!!analysisProgress.ocrDiagnostics?.appleCalls && (
+                <p>
+                  Dentro do tempo de OCR: processamento nativo{' '}
+                  {(analysisProgress.ocrDiagnostics.appleMs / 1000).toFixed(1)}s
+                  · preparação e comunicação{' '}
+                  {(analysisProgress.ocrDiagnostics.transferMs / 1000).toFixed(
+                    1,
+                  )}
+                  s.
+                </p>
+              )}
+              {analysisProgress.ocrDiagnostics?.fallbackReason && (
+                <p>
+                  Motivo do fallback:{' '}
+                  {analysisProgress.ocrDiagnostics.fallbackReason}
+                </p>
+              )}
+            </details>
             <span className="live-result">
               {analysisProgress.page.verdict
                 ? labels[analysisProgress.page.verdict.kind]
@@ -741,64 +840,68 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-              <div className="selection-panel">
-                <div className="quick-selection">
-                  <span>Seleção rápida</span>
-                  <button
-                    className="secondary"
-                    disabled={!!busy}
-                    onClick={() => selectParity('odd')}
-                  >
-                    Ímpares · 1, 3, 5…
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={!!busy}
-                    onClick={() => selectParity('even')}
-                  >
-                    Pares · 2, 4, 6…
-                  </button>
-                  <button
-                    className="secondary"
-                    disabled={!!busy || !candidates.length}
-                    onClick={() => {
-                      setSelected(new Set(candidates.map((p) => p.id)));
-                      setFilter(true);
-                    }}
-                  >
-                    Sugestões ({candidates.length})
-                  </button>
-                </div>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    applyRange();
-                  }}
-                >
-                  <label htmlFor="page-ranges">Selecionar por número</label>
-                  <div className="range-controls">
-                    <Input
-                      id="page-ranges"
-                      placeholder="Ex.: 1, 3, 5–10"
-                      value={range}
-                      disabled={!!busy}
-                      onChange={(e) => {
-                        setRange(e.target.value);
-                        setRangeError('');
-                      }}
-                      aria-invalid={!!rangeError}
-                      aria-describedby="selection-help"
-                    />
+              <div className="selection-panel compact-selection">
+                <div className="selection-row">
+                  <div className="quick-selection">
+                    <span>Seleção rápida</span>
                     <button
                       className="secondary"
                       disabled={!!busy}
-                      type="submit"
+                      onClick={() => selectParity('odd')}
                     >
-                      Aplicar seleção
+                      Ímpares
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={!!busy}
+                      onClick={() => selectParity('even')}
+                    >
+                      Pares
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={!!busy || !candidates.length}
+                      onClick={() => {
+                        setSelected(new Set(candidates.map((p) => p.id)));
+                        setFilter(true);
+                      }}
+                    >
+                      Sugestões ({candidates.length})
                     </button>
                   </div>
-                </form>
-                <p id="selection-help">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      applyRange();
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="page-ranges">
+                      Selecionar por número
+                    </label>
+                    <div className="range-controls">
+                      <Input
+                        id="page-ranges"
+                        placeholder="Ex.: 1, 3, 5–10"
+                        value={range}
+                        disabled={!!busy}
+                        onChange={(e) => {
+                          setRange(e.target.value);
+                          setRangeError('');
+                        }}
+                        aria-invalid={!!rangeError}
+                        aria-describedby="selection-help"
+                      />
+                      <button
+                        className="secondary"
+                        disabled={!!busy}
+                        type="submit"
+                      >
+                        Selecionar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+                <p id="selection-help" className="sr-only">
                   Use os números na ordem atual. A seleção informada substitui a
                   anterior.
                 </p>
@@ -807,20 +910,24 @@ export default function Home() {
                     {rangeError}
                   </p>
                 )}
-                <div className="selection-readout">
-                  <span>
-                    {selected.size
-                      ? `${selected.size} de ${pages.length} páginas selecionadas: ${formatPageSelection(selectedNumbers)}`
-                      : 'Nenhuma página selecionada.'}
-                  </span>
-                  <button
-                    className="text-button"
-                    disabled={!selected.size || !!busy}
-                    onClick={() => setSelected(new Set())}
-                  >
-                    Limpar seleção
-                  </button>
-                </div>
+                {!!selected.size && (
+                  <div className="selection-readout">
+                    <details>
+                      <summary>
+                        {selected.size} de {pages.length} selecionadas · ver
+                        números
+                      </summary>
+                      <p>{formatPageSelection(selectedNumbers)}</p>
+                    </details>
+                    <button
+                      className="text-button"
+                      disabled={!!busy}
+                      onClick={() => setSelected(new Set())}
+                    >
+                      Limpar seleção
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="analysis-overview" role="status">
                 <ScanLine size={22} />
@@ -841,27 +948,32 @@ export default function Home() {
                 <button
                   className="secondary"
                   disabled={!!busy}
-                  onClick={() =>
-                    analyzedCount && candidates.length
-                      ? setFilter(!filter)
-                      : void runAnalysis()
-                  }
+                  onClick={runAnalysis}
                 >
-                  {analyzedCount && candidates.length
-                    ? filter
-                      ? 'Ver todas'
-                      : 'Ver sugestões'
-                    : analyzedCount
-                      ? 'Analisar novamente'
-                      : 'Analisar páginas'}
+                  {analyzedCount ? 'Analisar novamente' : 'Analisar páginas'}
                 </button>
               </div>
               <div className="grid-caption">
+                <div
+                  className="page-views"
+                  role="group"
+                  aria-label="Páginas exibidas"
+                >
+                  <button
+                    aria-pressed={!filter}
+                    onClick={() => setFilter(false)}
+                  >
+                    Todas ({pages.length})
+                  </button>
+                  <button aria-pressed={filter} onClick={() => setFilter(true)}>
+                    Sugestões ({candidates.length})
+                  </button>
+                </div>
                 <span>
-                  {filter ? 'Sugestões para revisão' : 'Todas as páginas'}{' '}
-                  <b>{shown.length}</b>
+                  {filter
+                    ? 'Revise antes de excluir'
+                    : 'Arraste para reorganizar'}
                 </span>
-                <span>Arraste para reorganizar</span>
               </div>
               <VirtualPageGrid
                 items={shown}
@@ -870,7 +982,13 @@ export default function Home() {
                   <div className="no-results">
                     <Check size={28} />
                     <h3>Nenhuma página suspeita</h3>
-                    <p>Execute a análise ou volte para todas as páginas.</p>
+                    <p>Não há sugestões nesta visualização.</p>
+                    <button
+                      className="secondary"
+                      onClick={() => setFilter(false)}
+                    >
+                      Ver páginas restantes ({pages.length})
+                    </button>
                   </div>
                 }
                 renderItem={(p) => {
@@ -1001,12 +1119,65 @@ export default function Home() {
             </div>
           )}
         </section>
+        <Dialog open={clearOpen} onOpenChange={setClearOpen}>
+          <DialogContent>
+            <div>
+              <DialogTitle>Limpar documento?</DialogTitle>
+              <DialogDescription>
+                Isso fecha o PDF e descarta as alterações e o histórico desta
+                sessão. Exporte antes se quiser guardar suas edições. Os
+                arquivos originais permanecem intactos.
+              </DialogDescription>
+            </div>
+            <button className="secondary" onClick={() => setClearOpen(false)}>
+              Continuar editando
+            </button>
+            <button
+              className="primary"
+              disabled={!!busy || previewBusy}
+              onClick={clearDocument}
+            >
+              Limpar e começar outro
+            </button>
+          </DialogContent>
+        </Dialog>
         <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
           <SheetContent className="settings-sheet">
             <SheetTitle>Configurações de análise</SheetTitle>
             <SheetDescription>
               Ajuste a detecção. Nenhuma página é removida automaticamente.
             </SheetDescription>
+            <div className="setting">
+              <label htmlFor="ocr-engine">Motor de OCR</label>
+              <select
+                id="ocr-engine"
+                disabled={!!busy}
+                value={ocrEngine}
+                onChange={(e) =>
+                  setOcrEngine(e.target.value as 'auto' | 'tesseract')
+                }
+              >
+                <option value="auto">
+                  Automático (Apple Vision no app Mac)
+                </option>
+                <option value="tesseract">Tesseract — comparação</option>
+              </select>
+            </div>
+            <div className="setting">
+              <div>
+                <strong>Comparar sem cache</strong>
+                <span>
+                  Refaz as leituras. Use a mesma seleção e configurações nos
+                  dois motores; compare também as sugestões.
+                </span>
+              </div>
+              <Switch
+                checked={bypassCache}
+                onCheckedChange={setBypassCache}
+                disabled={!!busy}
+                aria-label="Comparar sem cache"
+              />
+            </div>
             <div className="setting">
               <div>
                 <strong>Folhas digitalizadas</strong>

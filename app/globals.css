@@ -1178,3 +1178,73 @@ footer,
     max-width: 55%;
   }
 }
+
+/* Compact selection controls keep document navigation visible. */
+.compact-selection {
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+.selection-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.compact-selection .quick-selection {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  gap: 6px;
+}
+.compact-selection .quick-selection > span {
+  margin-right: 4px;
+}
+.compact-selection form {
+  flex: 1;
+  min-width: 220px;
+}
+.compact-selection .range-controls {
+  min-width: 0;
+}
+.compact-selection .range-controls input {
+  min-width: 100px;
+  height: 34px;
+}
+.compact-selection .secondary {
+  padding: 6px 10px;
+  min-height: 34px;
+  font-size: 14px;
+}
+.compact-selection .selection-readout {
+  padding-top: 6px;
+  margin-top: 6px;
+}
+.compact-selection summary {
+  cursor: pointer;
+  font-size: 14px;
+}
+.compact-selection .selection-readout p {
+  max-height: 80px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.page-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.page-views button {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+}
+.page-views button[aria-pressed='true'] {
+  background: #e8f2ec;
+  color: #285c40;
+  border-color: #78a58a;
+  font-weight: 600;
+}

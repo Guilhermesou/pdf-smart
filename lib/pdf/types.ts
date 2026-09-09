@@ -26,6 +26,13 @@ export type AnalysisProgress = {
   pageProgress?: number;
   elapsedSeconds?: number;
   cachedPages?: number;
+  timings?: {
+    renderMs: number;
+    setupMs: number;
+    ocrMs: number;
+    visualMs: number;
+  };
+  ocrDiagnostics?: import('./native-ocr').OcrDiagnostics;
 };
 
 export type AnalysisOptions = {
@@ -33,4 +40,6 @@ export type AnalysisOptions = {
   tolerance: number;
   ignoreBorders?: boolean;
   scanMode?: boolean;
+  ocrEngine?: 'auto' | 'tesseract';
+  bypassCache?: boolean;
 };

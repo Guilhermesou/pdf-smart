@@ -44,8 +44,7 @@ export class AnalysisCache {
   }
   retainSources(ids: Set<string>) {
     for (const key of this.entries.keys())
-      if (!ids.has(key.slice(0, key.lastIndexOf(':'))))
-        this.entries.delete(key);
+      if (!ids.has(key.slice(0, key.indexOf(':')))) this.entries.delete(key);
   }
 }
 export const analysisCache = new AnalysisCache();

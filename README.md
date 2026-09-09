@@ -64,3 +64,25 @@ A inspeção também tolera encadernação colorida parcial (cobertura vertical 
 O cache de evidências mantém até 1024 páginas, separa OCR normal e OCR de scans, não guarda buffers internos do Tesseract e descarta leituras acima de 4000 caracteres. Resultados de falhas ou leituras interrompidas não são armazenados. As classificações são recalculadas usando as configurações atuais. O cache é descartado ao recarregar ou quando a origem deixa de ser referenciada pelo documento e pelo desfazer. Isso acelera reanálises; a primeira leitura continua exigindo processamento. Não há medição de aceleração global no PDF completo do usuário.
 
 Próxima etapa solicitada: host Tauri offline. Ainda não implementado nesta versão. Será necessário empacotar o modelo de idioma (hoje baixado no primeiro uso), adaptar os caminhos dos workers, trocar downloads por gravação em pasta escolhida e adicionar notificações ao concluir operações. A escolha de pasta e as notificações devem ficar no adaptador de sistema, fora da classificação. A validação desktop deve incluir inicialização sem rede, gravação, cancelamento e arquivos grandes. Nenhuma integração Tauri foi adicionada ao site nesta etapa.
+
+## Motor nativo macOS (primeira implementação desktop)
+
+O host Tauri usa `native_ocr` para conversar com um processo Swift persistente. Apple Vision reconhece texto localmente; em macOS 14 ou superior, consulta os dispositivos suportados por etapa e solicita Neural Engine quando disponível. Se a configuração falhar, tenta a seleção automática do Vision. A resposta diferencia disponibilidade de NPU, solicitação de NPU e fallback; não afirma uso exclusivo de NPU nem mede energia. Em Macs Intel, Vision pode usar os dispositivos disponíveis, sem presumir Neural Engine. O backend OpenVINO para computadores Intel ainda não está implementado. O navegador mantém Tesseract.
+
+O adaptador preserva o contrato do OCR e as tentativas de leitura de carimbos inclinados. Falha nativa ativa Tesseract uma vez por análise. Seu modelo de idioma está incluído em `public/ocr/lang` para uso offline no desktop. Imagens trafegam apenas por IPC local em PNG/base64; nenhum PDF é enviado. O processo Swift é reaproveitado, mas conversão de imagem e IPC ainda têm custo.
+
+Compilar em macOS com Xcode/Command Line Tools e Rust: `npm install`, `npm run desktop:build`. O script prepara o binário Swift da arquitetura corrente e o frontend estático; o Tauri gera o `.app` em `src-tauri/target/release/bundle/macos`. Esta primeira compilação é local e não notarizada para distribuição pública. Pasta de destino e notificações nativas continuam pendentes; os fluxos de interface no WebView ainda precisam de validação.
+
+Validação: `node tests/native-mac-check.mjs` após preparar o binário. No Mac de desenvolvimento, a consulta retornou Neural Engine disponível; a leitura sintética de EM BRANCO teve confiança 100 e retornou Neural Engine solicitado. Entrada inválida não interrompeu o processo. Essa é validação funcional do motor, não perfil de hardware ou benchmark de aceleração. `node --experimental-strip-types --test tests/*.test.mjs` inclui falha de backend, fallback e preservação dos parâmetros.
+
+### Diagnóstico de desempenho 0.1.1
+
+O painel da análise registra chamadas reais ao Apple Vision e Tesseract (incluindo rotações), solicitações de Neural Engine, motivo de fallback e tempos acumulados de renderização, preparação, inspeção visual e OCR. O tempo nativo inclui decodificação e execução do Vision; o restante da chamada inclui preparação da imagem e IPC. Esses números não são contadores de utilização física de NPU. Resultados vindos do cache não aumentam os contadores de OCR.
+
+Configurações permitem escolher Tesseract ou seleção automática (Apple no app Mac) e comparar sem cache. A chave do cache separa as escolhas de motor. Para comparação no mesmo documento, mantenha seleção e sensibilidade, ative Comparar sem cache e execute cada motor; considere aquecimento, tempo total e qualidade das sugestões.
+
+Benchmark reproduzível: `node tests/ocr-benchmark.mjs`, após preparar o binário nativo. Em um carimbo sintético 900×500, seis leituras, mediana das últimas cinco: Apple Vision/IPC 75,17 ms; Tesseract em Node 31,62 ms. Primeira leitura: 800,88 ms e 63,69 ms, respectivamente; inicialização Tesseract separada 247,11 ms. Ambos leram EM BRANCO. O resultado não demonstra vantagem do motor Apple nesse cenário; não inclui renderização de PDF nem reproduz todos os custos do WebView. O benchmark não substitui uma medição do PDF completo.
+
+### Fluxo de documentos 0.1.2
+
+Limpar documento fecha a sessão após confirmação, limpa seleção, filtros, resultados, histórico e ampliação; preserva as preferências de análise. A liberação das origens, URLs e cache segue o ciclo de vida existente ao remover as referências. Todas e Sugestões são controles permanentes, inclusive com zero sugestões. Excluir a última sugestão retorna à lista completa de páginas restantes. Seleção rápida e intervalos compartilham uma faixa compacta; os números selecionados ficam em detalhe expansível. Compilação verificada; interação no WebView ainda não validada nesta alteração.

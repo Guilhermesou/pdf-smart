@@ -14,11 +14,18 @@ export async function analyzePages(
   onDetail: ((progress: AnalysisProgress) => void) | undefined,
   renderPage: (page: PageItem, width: number) => Promise<HTMLCanvasElement>,
 ) {
-  let worker:
-    | Awaited<ReturnType<(typeof import('tesseract.js'))['createWorker']>>
-    | undefined;
+  let worker: Awaited<ReturnType<typeof createOcrWorker>> | undefined;
   const result: PageItem[] = [];
   const started = performance.now();
+  const timings = { renderMs: 0, setupMs: 0, ocrMs: 0, visualMs: 0 };
+  const timedRender = async (page: PageItem, width: number) => {
+    const time = performance.now();
+    try {
+      return await renderPage(page, width);
+    } finally {
+      timings.renderMs += performance.now() - time;
+    }
+  };
   let cachedPages = 0;
   let lastDetailTime = 0;
   const detail = (stage: string, pageProgress?: number, force = false) => {
@@ -34,6 +41,8 @@ export async function analyzePages(
         pageProgress,
         elapsedSeconds: Math.floor((performance.now() - started) / 1000),
         cachedPages,
+        timings: { ...timings },
+        ocrDiagnostics: worker?.diagnostics?.(),
       });
     }
   };
@@ -54,8 +63,12 @@ export async function analyzePages(
         : 'disabled';
       let scanReview = false;
       let scanMetrics: { ink: number; paleInk: number } | undefined;
-      const key = `${p.source}:${p.index}`;
-      const cached = analysisCache.get(key) ?? {};
+      const key =
+        options.ocrEngine === 'tesseract'
+          ? `${p.source}:tesseract:${p.index}`
+          : `${p.source}:${p.index}`;
+      const cached =
+        (options.bypassCache ? undefined : analysisCache.get(key)) ?? {};
       let reused = false;
       let text = p.text,
         confidence = 100;
@@ -72,8 +85,9 @@ export async function analyzePages(
           );
           reused = true;
         } else {
-          const visual = await renderPage({ ...p, rotation: 0 }, 700);
+          const visual = await timedRender({ ...p, rotation: 0 }, 700);
           try {
+            const visualStarted = performance.now();
             const metrics = scanRegion(
               visual
                 .getContext('2d')!
@@ -89,6 +103,7 @@ export async function analyzePages(
             );
             scanMetrics = metrics;
             cached.visual = metrics;
+            timings.visualMs += performance.now() - visualStarted;
           } finally {
             visual.width = 0;
           }
@@ -107,12 +122,19 @@ export async function analyzePages(
             if (!worker) {
               onProgress('Preparando reconhecimento de carimbos…');
               detail('Preparando OCR', undefined, true);
-              worker = await createOcrWorker((stage, percent) =>
-                detail(stage, percent),
-              );
+              const setupStarted = performance.now();
+              try {
+                worker = await createOcrWorker(
+                  (stage, percent) => detail(stage, percent),
+                  options.ocrEngine,
+                );
+              } finally {
+                timings.setupMs += performance.now() - setupStarted;
+              }
             }
             detail('Preparando imagem para leitura', undefined, true);
-            const canvas = await renderPage({ ...p, rotation: 0 }, 1500);
+            const canvas = await timedRender({ ...p, rotation: 0 }, 1500);
+            const ocrStarted = performance.now();
             try {
               recognized = options.scanMode
                 ? await recognizeScanStamp(
@@ -131,6 +153,7 @@ export async function analyzePages(
                 : { ...(await worker.recognize(canvas)), review: false };
               if (!cancel.current) cached[ocrKey] = recognized;
             } finally {
+              timings.ocrMs += performance.now() - ocrStarted;
               canvas.width = 0;
             }
           }
