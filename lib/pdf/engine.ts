@@ -46,7 +46,27 @@ export function createPdfSession() {
       void destroyTask().catch(() => {});
     };
     signal.addEventListener('abort', abortLoading, { once: true });
-    task.onPassword = () => {
+    let passwordAttempts = 0;
+    task.onPassword = (
+      callback: (password: string) => void,
+      reason: number,
+    ) => {
+      passwordAttempts++;
+      if (passwordAttempts > 3) {
+        void destroyTask().catch(() => {});
+        return;
+      }
+      if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+        const msg =
+          reason === 2
+            ? `Senha incorreta para "${file.name}". Digite novamente:`
+            : `O arquivo "${file.name}" está protegido por senha. Digite a senha para abrir:`;
+        const pwd = window.prompt(msg);
+        if (pwd !== null && pwd.length > 0) {
+          callback(pwd);
+          return;
+        }
+      }
       void destroyTask().catch(() => {});
     };
     let doc: PDFDocumentProxy;
@@ -224,6 +244,7 @@ export function createPdfSession() {
     pages: PageItem[],
     onProgress?: (progress: ExportProgress) => void,
     sharedWorker?: Worker,
+    numbering?: import('./worker-protocol').PageNumberingOptions,
   ) {
     await paintBeforeWork();
     resources.assertOpen();
@@ -239,6 +260,7 @@ export function createPdfSession() {
           type: 'export',
           ...exportPayload(pages, sources),
           reuseSource: !!sharedWorker,
+          numbering,
         },
         { signal, expected: 'result', progress: checked(onProgress) },
       );

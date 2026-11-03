@@ -1,4 +1,5 @@
 'use client';
+import { useState, useEffect } from 'react';
 import {
   FileStack,
   Settings2,
@@ -23,6 +24,8 @@ import {
   FilePlus2,
   X,
   LoaderCircle,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { version } from '@/package.json';
 import { VirtualPageGrid } from '@/components/virtual-page-grid';
@@ -100,6 +103,34 @@ export function EditorView({ model }: { model: EditorViewModel }) {
     runAnalysis,
     download,
   } = model;
+
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    try {
+      localStorage.setItem('theme', next ? 'dark' : 'light');
+    } catch {}
+  };
+
   return (
     <main>
       <header className="topbar">
@@ -112,9 +143,19 @@ export function EditorView({ model }: { model: EditorViewModel }) {
             v{version}
           </span>
         </div>
-        <span className="privacy">
-          <ShieldCheck size={16} /> Seus arquivos ficam com você
-        </span>
+        <div className="header-actions">
+          <button
+            className="theme-toggle"
+            aria-label={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
+            title={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
+            onClick={toggleTheme}
+          >
+            {isDark ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
+          <span className="privacy">
+            <ShieldCheck size={16} /> Seus arquivos ficam com você
+          </span>
+        </div>
       </header>
       {pages.length > 0 && (
         <div className="workspace-heading">

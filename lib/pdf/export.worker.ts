@@ -1,4 +1,4 @@
-import { PDFDocument, degrees, type PDFPage } from 'pdf-lib';
+import { PDFDocument, degrees, StandardFonts, rgb, type PDFPage } from 'pdf-lib';
 import { isExportRequest, type WorkerResponse } from './worker-protocol';
 const scope = self as unknown as {
   onmessage: (event: MessageEvent<unknown>) => void;
@@ -44,6 +44,7 @@ scope.onmessage = async (e) => {
         previous ??
         (await PDFDocument.load(
           source instanceof Uint8Array ? source : await source.arrayBuffer(),
+          { ignoreEncryption: true },
         ));
       if (reuseSource) retained = { id, doc };
       // One copier per source preserves shared fonts/images instead of duplicating them per page.
@@ -66,6 +67,44 @@ scope.onmessage = async (e) => {
       delete sources[id];
     }
     for (const page of ordered) output.addPage(page);
+    if (e.data.numbering?.enabled) {
+      const {
+        format = 'fls',
+        prefix = 'Fls. ',
+        startAt = 1,
+        position = 'top-right',
+        fontSize = 10,
+      } = e.data.numbering;
+      const font = await output.embedFont(StandardFonts.Helvetica);
+      const total = ordered.length;
+      for (let i = 0; i < ordered.length; i++) {
+        const page = ordered[i];
+        const n = startAt + i;
+        const text =
+          format === 'fls'
+            ? `${prefix}${n}`
+            : format === 'page_of_total'
+              ? `Pág. ${n} de ${total}`
+              : `${n}`;
+        const textWidth = font.widthOfTextAtSize(text, fontSize);
+        const { width, height } = page.getSize();
+        let x = width - textWidth - 28;
+        let y = height - 28;
+        if (position === 'bottom-right') {
+          y = 20;
+        } else if (position === 'bottom-center') {
+          x = (width - textWidth) / 2;
+          y = 20;
+        }
+        page.drawText(text, {
+          x,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0.2, 0.2, 0.2),
+        });
+      }
+    }
     scope.postMessage({
       type: 'progress',
       progress: {

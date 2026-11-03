@@ -28,6 +28,12 @@ type Props = {
     | 'settingsOpen'
     | 'setSettingsOpen'
     | 'runAnalysis'
+    | 'numberingEnabled'
+    | 'setNumberingEnabled'
+    | 'numberingFormat'
+    | 'setNumberingFormat'
+    | 'numberingStart'
+    | 'setNumberingStart'
   >;
 };
 export function AnalysisSettings({ model }: Props) {
@@ -49,6 +55,12 @@ export function AnalysisSettings({ model }: Props) {
     settingsOpen,
     setSettingsOpen,
     runAnalysis,
+    numberingEnabled,
+    setNumberingEnabled,
+    numberingFormat,
+    setNumberingFormat,
+    numberingStart,
+    setNumberingStart,
   } = model;
   return (
     <>
@@ -140,6 +152,51 @@ export function AnalysisSettings({ model }: Props) {
               onCheckedChange={setIgnoreBorders}
             />
           </div>
+          <div className="setting">
+            <div>
+              <strong>Numerar folhas ao exportar</strong>
+              <span>Aplica chancelaria numerada (Fls. X) no topo direito.</span>
+            </div>
+            <Switch
+              aria-label="Numerar folhas ao exportar"
+              disabled={!!busy}
+              checked={numberingEnabled}
+              onCheckedChange={setNumberingEnabled}
+            />
+          </div>
+          {numberingEnabled && (
+            <div className="setting">
+              <label htmlFor="numbering-format">Formato da numeração</label>
+              <select
+                id="numbering-format"
+                disabled={!!busy}
+                value={numberingFormat}
+                onChange={(e) =>
+                  setNumberingFormat(
+                    e.target.value as 'fls' | 'page_of_total' | 'simple',
+                  )
+                }
+              >
+                <option value="fls">Fls. 1, Fls. 2… (Processos)</option>
+                <option value="page_of_total">Pág. 1 de N</option>
+                <option value="simple">1, 2, 3… (Apenas número)</option>
+              </select>
+            </div>
+          )}
+          {numberingEnabled && (
+            <div className="setting">
+              <label htmlFor="numbering-start">Começar no número</label>
+              <input
+                id="numbering-start"
+                type="number"
+                min="1"
+                disabled={!!busy}
+                value={numberingStart}
+                onChange={(e) => setNumberingStart(e.target.value)}
+                style={{ width: '80px', padding: '4px 8px' }}
+              />
+            </div>
+          )}
           <button
             className="primary analyze-button"
             disabled={!pages.length || !!busy}

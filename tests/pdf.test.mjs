@@ -70,6 +70,24 @@ test('export worker merges, reorders, deletes, inserts and rotates without raste
   await self.onmessage({
     data: {
       type: 'export',
+      sources: { a: await a.save(), b: await b.save() },
+      pages: [
+        { source: 'b', index: 0, rotation: 0 },
+        { source: 'a', index: 1, rotation: 0 },
+      ],
+      numbering: {
+        enabled: true,
+        format: 'fls',
+        startAt: 42,
+      },
+    },
+  });
+  assert.ok(!result.error, result.error);
+  const numbered = await PDFDocument.load(result.bytes);
+  assert.equal(numbered.getPageCount(), 2);
+  await self.onmessage({
+    data: {
+      type: 'export',
       sources: {},
       pages: [{ source: 'missing', index: 0, rotation: 0 }],
     },

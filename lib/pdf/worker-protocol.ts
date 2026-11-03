@@ -1,10 +1,20 @@
 import type { ExportPageRef, ExportProgress } from './runtime';
 
+export type PageNumberingOptions = {
+  enabled: boolean;
+  format?: 'fls' | 'page_of_total' | 'simple';
+  prefix?: string;
+  startAt?: number;
+  position?: 'top-right' | 'bottom-right' | 'bottom-center';
+  fontSize?: number;
+};
+
 export type ExportRequest = {
   type: 'export';
   pages: ExportPageRef[];
   sources: Record<string, Blob | Uint8Array>;
   reuseSource?: boolean;
+  numbering?: PageNumberingOptions;
 };
 export type CompressionRequest =
   | { type: 'start' }
@@ -50,6 +60,8 @@ export function isExportRequest(value: unknown): value is ExportRequest {
   )
     return false;
   if (value.reuseSource !== undefined && typeof value.reuseSource !== 'boolean')
+    return false;
+  if (value.numbering !== undefined && !record(value.numbering))
     return false;
   return (
     value.pages.every(

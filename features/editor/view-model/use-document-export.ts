@@ -40,6 +40,9 @@ export function useDocumentExport({
   const [toolDialog, setToolDialog] = useState<'split' | 'compress' | null>(null);
   const [splitEvery, setSplitEvery] = useState('');
   const [rasterAccepted, setRasterAccepted] = useState(false);
+  const [numberingEnabled, setNumberingEnabled] = useState(false);
+  const [numberingFormat, setNumberingFormat] = useState<'fls' | 'page_of_total' | 'simple'>('fls');
+  const [numberingStart, setNumberingStart] = useState('1');
 
   async function splitPdf(rest: boolean) {
     if (locked.current) return;
@@ -134,7 +137,19 @@ export function useDocumentExport({
     setAnalysisProgress(null);
     try {
       await paintBeforeWork();
-      const bytes = await exportPdf(pages, (p) => setBusy(exportMessage(p)));
+      const numbering = numberingEnabled
+        ? {
+            enabled: true,
+            format: numberingFormat,
+            startAt: Math.max(1, parseInt(numberingStart, 10) || 1),
+          }
+        : undefined;
+      const bytes = await exportPdf(
+        pages,
+        (p) => setBusy(exportMessage(p)),
+        undefined,
+        numbering,
+      );
       const saved = await saveBytes(bytes, `${name}-editado.pdf`);
       setMessage(
         typeof saved === 'string'
@@ -155,6 +170,12 @@ export function useDocumentExport({
     setSplitEvery,
     rasterAccepted,
     setRasterAccepted,
+    numberingEnabled,
+    setNumberingEnabled,
+    numberingFormat,
+    setNumberingFormat,
+    numberingStart,
+    setNumberingStart,
     splitPdf,
     splitPdfEvery,
     compressPdf,

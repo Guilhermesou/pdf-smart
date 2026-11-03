@@ -27,6 +27,8 @@ export interface EditorServices {
     this: void,
     pages: PageItem[],
     progress?: (progress: ExportProgress) => void,
+    sharedWorker?: Worker,
+    numbering?: import('../../../lib/pdf/worker-protocol').PageNumberingOptions,
   ): Promise<Uint8Array>;
   exportPdfParts(
     this: void,

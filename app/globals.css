@@ -73,6 +73,80 @@ body {
   --ring: #306647;
   --radius: 0.7rem;
 }
+
+.dark {
+  --background: #111315;
+  --foreground: #eceff1;
+  --card: #181c20;
+  --card-foreground: #eceff1;
+  --popover: #181c20;
+  --popover-foreground: #eceff1;
+  --primary: #387a55;
+  --primary-foreground: #ffffff;
+  --secondary: #222925;
+  --secondary-foreground: #9ac2aa;
+  --muted: #1e2328;
+  --muted-foreground: #8d98a5;
+  --accent: #253029;
+  --accent-foreground: #9ac2aa;
+  --destructive: #c74747;
+  --border: #283038;
+  --input: #35404b;
+  --ring: #387a55;
+}
+
+.theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  padding: 6px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.theme-toggle:hover {
+  background: var(--muted);
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.dark .document-bar,
+.dark .workspace-tools,
+.dark .page-card,
+.dark .secondary,
+.dark .empty-editor,
+.dark .tool-dialog {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .secondary {
+  color: var(--foreground);
+}
+.dark .secondary:hover {
+  background: var(--muted);
+}
+.dark .page-card {
+  background: var(--card);
+}
+.dark .workspace-tools button,
+.dark .workspace-tools .tool-current {
+  background: var(--card);
+  color: var(--foreground);
+}
+.dark .app-version {
+  background: #253029;
+  color: #9ac2aa;
+}
+.dark .document-name > svg {
+  color: #9ac2aa;
+}
 * {
   box-sizing: border-box;
 }
