@@ -313,6 +313,8 @@ export function createPdfSession() {
     onProgress?: (progress: ExportProgress) => void,
     sharedWorker?: Worker,
     numbering?: import('./worker-protocol').PageNumberingOptions,
+    watermark?: import('./worker-protocol').WatermarkOptions,
+    normalizeA4?: boolean,
   ) {
     await paintBeforeWork();
     resources.assertOpen();
@@ -329,6 +331,8 @@ export function createPdfSession() {
           ...exportPayload(pages, sources),
           reuseSource: !!sharedWorker,
           numbering,
+          watermark,
+          normalizeA4,
         },
         { signal, expected: 'result', progress: checked(onProgress) },
       );

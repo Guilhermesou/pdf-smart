@@ -34,6 +34,16 @@ type Props = {
     | 'setNumberingFormat'
     | 'numberingStart'
     | 'setNumberingStart'
+    | 'watermarkEnabled'
+    | 'setWatermarkEnabled'
+    | 'watermarkText'
+    | 'setWatermarkText'
+    | 'watermarkColor'
+    | 'setWatermarkColor'
+    | 'watermarkOpacity'
+    | 'setWatermarkOpacity'
+    | 'normalizeA4Enabled'
+    | 'setNormalizeA4Enabled'
   >;
 };
 export function AnalysisSettings({ model }: Props) {
@@ -61,6 +71,16 @@ export function AnalysisSettings({ model }: Props) {
     setNumberingFormat,
     numberingStart,
     setNumberingStart,
+    watermarkEnabled,
+    setWatermarkEnabled,
+    watermarkText,
+    setWatermarkText,
+    watermarkColor,
+    setWatermarkColor,
+    watermarkOpacity: _watermarkOpacity,
+    setWatermarkOpacity: _setWatermarkOpacity,
+    normalizeA4Enabled,
+    setNormalizeA4Enabled,
   } = model;
   return (
     <>
@@ -197,6 +217,60 @@ export function AnalysisSettings({ model }: Props) {
               />
             </div>
           )}
+          <div className="setting">
+            <div>
+              <strong>Marca d’água ao exportar</strong>
+              <span>Estampa texto diagonal translúcido nas páginas.</span>
+            </div>
+            <Switch
+              aria-label="Marca d'água ao exportar"
+              disabled={!!busy}
+              checked={watermarkEnabled}
+              onCheckedChange={setWatermarkEnabled}
+            />
+          </div>
+          {watermarkEnabled && (
+            <div className="setting">
+              <label htmlFor="watermark-text">Texto da marca d’água</label>
+              <input
+                id="watermark-text"
+                type="text"
+                disabled={!!busy}
+                value={watermarkText}
+                onChange={(e) => setWatermarkText(e.target.value)}
+                placeholder="Ex.: CONFIDENCIAL"
+                style={{ width: '160px', padding: '4px 8px' }}
+              />
+            </div>
+          )}
+          {watermarkEnabled && (
+            <div className="setting">
+              <label htmlFor="watermark-color">Cor da marca</label>
+              <select
+                id="watermark-color"
+                disabled={!!busy}
+                value={watermarkColor}
+                onChange={(e) =>
+                  setWatermarkColor(e.target.value as 'gray' | 'red')
+                }
+              >
+                <option value="gray">Cinza discreto</option>
+                <option value="red">Vermelho de alerta</option>
+              </select>
+            </div>
+          )}
+          <div className="setting">
+            <div>
+              <strong>Padronizar páginas em A4</strong>
+              <span>Ajusta páginas de tamanhos variados ao padrão A4.</span>
+            </div>
+            <Switch
+              aria-label="Padronizar páginas em A4"
+              disabled={!!busy}
+              checked={normalizeA4Enabled}
+              onCheckedChange={setNormalizeA4Enabled}
+            />
+          </div>
           <button
             className="primary analyze-button"
             disabled={!pages.length || !!busy}

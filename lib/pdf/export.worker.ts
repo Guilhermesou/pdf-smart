@@ -67,6 +67,56 @@ scope.onmessage = async (e) => {
       delete sources[id];
     }
     for (const page of ordered) output.addPage(page);
+    if (e.data.normalizeA4) {
+      const A4_W = 595.28;
+      const A4_H = 841.89;
+      for (const page of ordered) {
+        const { width, height } = page.getSize();
+        const isLandscape = width > height;
+        const targetW = isLandscape ? A4_H : A4_W;
+        const targetH = isLandscape ? A4_W : A4_H;
+        if (Math.abs(width - targetW) > 2 || Math.abs(height - targetH) > 2) {
+          const scaleX = targetW / width;
+          const scaleY = targetH / height;
+          page.scale(scaleX, scaleY);
+          page.setSize(targetW, targetH);
+        }
+      }
+    }
+    if (e.data.watermark?.enabled && e.data.watermark.text?.trim()) {
+      const {
+        text,
+        opacity = 0.18,
+        fontSize = 48,
+        color = 'gray',
+      } = e.data.watermark;
+      const watermarkFont = await output.embedFont(StandardFonts.HelveticaBold);
+      const watermarkColor =
+        color === 'red' ? rgb(0.85, 0.15, 0.15) : rgb(0.4, 0.4, 0.4);
+
+      for (const page of ordered) {
+        const { width, height } = page.getSize();
+        const textWidth = watermarkFont.widthOfTextAtSize(text, fontSize);
+        const textHeight = watermarkFont.heightAtSize(fontSize);
+        const rad = (45 * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const xOffset = (textWidth * cos - textHeight * sin) / 2;
+        const yOffset = (textWidth * sin + textHeight * cos) / 2;
+        const x = width / 2 - xOffset;
+        const y = height / 2 - yOffset;
+
+        page.drawText(text, {
+          x,
+          y,
+          size: fontSize,
+          font: watermarkFont,
+          color: watermarkColor,
+          opacity,
+          rotate: degrees(45),
+        });
+      }
+    }
     if (e.data.numbering?.enabled) {
       const {
         format = 'fls',

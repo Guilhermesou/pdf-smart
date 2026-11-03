@@ -29,6 +29,8 @@ export interface EditorServices {
     progress?: (progress: ExportProgress) => void,
     sharedWorker?: Worker,
     numbering?: import('../../../lib/pdf/worker-protocol').PageNumberingOptions,
+    watermark?: import('../../../lib/pdf/worker-protocol').WatermarkOptions,
+    normalizeA4?: boolean,
   ): Promise<Uint8Array>;
   exportPdfParts(
     this: void,

@@ -43,6 +43,11 @@ export function useDocumentExport({
   const [numberingEnabled, setNumberingEnabled] = useState(false);
   const [numberingFormat, setNumberingFormat] = useState<'fls' | 'page_of_total' | 'simple'>('fls');
   const [numberingStart, setNumberingStart] = useState('1');
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+  const [watermarkText, setWatermarkText] = useState('CONFIDENCIAL');
+  const [watermarkColor, setWatermarkColor] = useState<'gray' | 'red'>('gray');
+  const [watermarkOpacity, setWatermarkOpacity] = useState(0.18);
+  const [normalizeA4Enabled, setNormalizeA4Enabled] = useState(false);
 
   async function splitPdf(rest: boolean) {
     if (locked.current) return;
@@ -212,11 +217,22 @@ export function useDocumentExport({
             startAt: Math.max(1, parseInt(numberingStart, 10) || 1),
           }
         : undefined;
+      const watermark =
+        watermarkEnabled && watermarkText.trim()
+          ? {
+              enabled: true,
+              text: watermarkText.trim(),
+              color: watermarkColor,
+              opacity: watermarkOpacity,
+            }
+          : undefined;
       const bytes = await exportPdf(
         pages,
         (p) => setBusy(exportMessage(p)),
         undefined,
         numbering,
+        watermark,
+        normalizeA4Enabled,
       );
       const saved = await saveBytes(bytes, `${name}-editado.pdf`);
       setMessage(
@@ -244,6 +260,16 @@ export function useDocumentExport({
     setNumberingFormat,
     numberingStart,
     setNumberingStart,
+    watermarkEnabled,
+    setWatermarkEnabled,
+    watermarkText,
+    setWatermarkText,
+    watermarkColor,
+    setWatermarkColor,
+    watermarkOpacity,
+    setWatermarkOpacity,
+    normalizeA4Enabled,
+    setNormalizeA4Enabled,
     splitPdf,
     splitPdfEvery,
     splitByBlankSeparators,

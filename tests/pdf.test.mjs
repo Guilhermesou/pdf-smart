@@ -88,6 +88,26 @@ test('export worker merges, reorders, deletes, inserts and rotates without raste
   await self.onmessage({
     data: {
       type: 'export',
+      sources: { a: await a.save() },
+      pages: [{ source: 'a', index: 0, rotation: 0 }],
+      watermark: {
+        enabled: true,
+        text: 'CONFIDENCIAL',
+        color: 'red',
+        opacity: 0.2,
+      },
+      normalizeA4: true,
+    },
+  });
+  assert.ok(!result.error, result.error);
+  const a4Watermarked = await PDFDocument.load(result.bytes);
+  assert.equal(a4Watermarked.getPageCount(), 1);
+  const p = a4Watermarked.getPage(0);
+  assert.ok(Math.abs(p.getWidth() - 595.28) < 1);
+  assert.ok(Math.abs(p.getHeight() - 841.89) < 1);
+  await self.onmessage({
+    data: {
+      type: 'export',
       sources: {},
       pages: [{ source: 'missing', index: 0, rotation: 0 }],
     },

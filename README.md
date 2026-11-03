@@ -122,6 +122,8 @@ A versão 0.1.8 traz recursos de produtividade jurídica e corporativa:
 - **Escalabilidade Extrema (Lazy Thumbnails & Instant Import):** Documentos com centenas de páginas são importados instantaneamente (< 500 ms). As miniaturas são renderizadas diretamente a 220 px sob demanda conforme o usuário rola o grid virtual, economizando 81% de memória e ciclos de CPU.
 - **Importação de Imagens (PNG, JPG, WEBP para PDF):** Suporte nativo a arrastar ou selecionar fotos e imagens junto com PDFs. As imagens são encapsuladas automaticamente em páginas com escala A4 preservando sua resolução original.
 - **Divisão Inteligente por Folhas em Branco:** Ferramenta de separação automática no diálogo de divisão que particiona maços de digitalização em documentos avulsos, descartando as folhas em branco delimitadoras.
+- **Marca d'Água Vetorial Personalizada:** Aplicação de texto diagonal translúcido ("CONFIDENCIAL", "RASCUNHO", etc.) com escolha de cor (cinza ou vermelho de alerta) diretamente na exportação sem rasterização.
+- **Padronização Automática em A4:** Normalização proporcional de páginas avulsas, comprovantes ou páginas fora de padrão para dimensões canônicas A4.
 - **Numeração Sequencial / Chancelaria ao Exportar:** Opção de estampar páginas ("Fls. X", "Pág. X de N" ou simples) sem rasterização, preservando texto e vetores originais.
 - **Diálogo Nativo Desktop:** O aplicativo Tauri desktop abre caixas de diálogo nativas do sistema operacional (NSSavePanel no Mac / IFileDialog no Windows) para salvar arquivos em pastas à escolha do usuário.
 - **Suporte a PDFs com Senha:** Desbloqueio interativo de documentos criptografados e suporte a PDFs com restrições de permissão.

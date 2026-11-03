@@ -9,12 +9,22 @@ export type PageNumberingOptions = {
   fontSize?: number;
 };
 
+export type WatermarkOptions = {
+  enabled: boolean;
+  text: string;
+  opacity?: number;
+  fontSize?: number;
+  color?: 'gray' | 'red';
+};
+
 export type ExportRequest = {
   type: 'export';
   pages: ExportPageRef[];
   sources: Record<string, Blob | Uint8Array>;
   reuseSource?: boolean;
   numbering?: PageNumberingOptions;
+  watermark?: WatermarkOptions;
+  normalizeA4?: boolean;
 };
 export type CompressionRequest =
   | { type: 'start' }
@@ -62,6 +72,10 @@ export function isExportRequest(value: unknown): value is ExportRequest {
   if (value.reuseSource !== undefined && typeof value.reuseSource !== 'boolean')
     return false;
   if (value.numbering !== undefined && !record(value.numbering))
+    return false;
+  if (value.watermark !== undefined && !record(value.watermark))
+    return false;
+  if (value.normalizeA4 !== undefined && typeof value.normalizeA4 !== 'boolean')
     return false;
   return (
     value.pages.every(
