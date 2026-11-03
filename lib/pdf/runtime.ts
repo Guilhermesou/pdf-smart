@@ -31,6 +31,43 @@ export function canvasBlob(
     ),
   );
 }
+/** Reject promptly on session close, without leaving a subscription behind. */
+export async function withAbort<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  let abort: () => void = () => {};
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        abort = () => reject(new Error('Operação encerrada.'));
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+      }),
+    ]);
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
+/** Bound asynchronous host operations, including callbacks that never arrive. */
+export async function withTimeout<T>(
+  operation: Promise<T>,
+  milliseconds: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), milliseconds);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 export type ExportProgress = {
   phase: 'loading' | 'copying' | 'saving';
   completed: number;

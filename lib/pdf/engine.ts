@@ -1,223 +1,320 @@
 import {
   canvasBlob,
+  withAbort,
   paintBeforeWork,
   exportPayload,
-  pruneResources,
   type ExportProgress,
 } from './runtime';
 import { measureInk, measureInteriorInk } from './detection';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type {
-  PageItem,
-  Source,
-  AnalysisProgress,
-  AnalysisOptions,
-} from './types';
+import type { PageItem, AnalysisProgress, AnalysisOptions } from './types';
 export type { PageItem, Source, AnalysisProgress } from './types';
 import { analyzePages } from './analysis';
-import { analysisCache } from './analysis-cache';
-export const sources = new Map<string, Source>();
-const thumbnailUrls = new Set<string>();
-export function releaseUnusedResources(
-  pages: PageItem[],
-  history: PageItem[][],
-) {
-  pruneResources(sources, thumbnailUrls, pages, history, (url) =>
-    URL.revokeObjectURL(url),
-  );
-  analysisCache.retainSources(new Set(sources.keys()));
-}
-export function disposeResources() {
-  releaseUnusedResources([], []);
-}
-export async function importPdf(file: File, progress: (s: string) => void) {
-  const pdfjs = await import('pdfjs-dist');
-  pdfjs.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const task = pdfjs.getDocument({
-    data: bytes,
-    cMapUrl: '/pdf/cmaps/',
-    cMapPacked: true,
-    standardFontDataUrl: '/pdf/standard_fonts/',
-    wasmUrl: '/pdf/wasm/',
-  });
-  task.onPassword = () => {
-    void task.destroy();
-  };
-  let doc: PDFDocumentProxy;
-  try {
-    doc = await task.promise;
-  } catch {
-    throw new Error(
-      'Não foi possível abrir ' +
-        file.name +
-        '. Verifique se é um PDF válido e sem senha.',
-    );
+import { SessionResources } from './session-resources';
+import { requestWorker } from './worker-client';
+/** Factory: documents, cache and active jobs belong to this instance alone. */
+export function createPdfSession() {
+  const resources = new SessionResources();
+  const { sources, thumbnailUrls } = resources;
+  const signal = resources.signal;
+  function checked<T extends unknown[]>(
+    callback: ((...args: T) => void) | undefined,
+  ) {
+    return (...args: T) => {
+      if (!signal.aborted) callback?.(...args);
+    };
   }
-  const source = crypto.randomUUID(),
-    pages: PageItem[] = [];
-  try {
-    for (let index = 0; index < doc.numPages; index++) {
-      progress(`Abrindo ${file.name} · ${index + 1}/${doc.numPages}`);
-      const page = await doc.getPage(index + 1);
-      const viewport = page.getViewport({
-        scale: 500 / page.getViewport({ scale: 1 }).width,
-      });
-      const canvas = document.createElement('canvas');
-      const thumb = document.createElement('canvas');
-      try {
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-        await page.render({
-          canvas,
-          canvasContext: ctx,
-          viewport,
-          background: 'rgb(255,255,255)',
-        }).promise;
-        const content = await page.getTextContent();
-        const text = content.items
-          .map((x) => ('str' in x ? x.str + (x.hasEOL ? '\n' : '') : ''))
-          .join(' ');
-        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-        const ink = measureInk(pixels);
-        const interiorInk = measureInteriorInk(
-          pixels,
-          canvas.width,
-          canvas.height,
-        );
-        pages.push({
-          id: crypto.randomUUID(),
-          source,
-          index,
-          rotation: 0,
-          thumb: '',
-          text,
-          ink,
-          interiorInk,
-        });
-        thumb.width = 220;
-        thumb.height = Math.max(
-          1,
-          Math.round((canvas.height / canvas.width) * 220),
-        );
-        thumb
-          .getContext('2d')!
-          .drawImage(canvas, 0, 0, thumb.width, thumb.height);
-        const url = URL.createObjectURL(await canvasBlob(thumb));
-        thumbnailUrls.add(url);
-        pages[pages.length - 1].thumb = url;
-      } finally {
-        thumb.width = 0;
-        canvas.width = 0;
-        page.cleanup();
-      }
-      await new Promise((r) => setTimeout(r, 0));
+  async function importPdf(
+    file: File,
+    progress: (s: string) => void,
+    onPages?: (pages: PageItem[]) => void,
+  ) {
+    const pdfjs = await import('pdfjs-dist');
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf/pdf.worker.min.mjs';
+    const bytes = new Uint8Array(await withAbort(file.arrayBuffer(), signal));
+    resources.assertOpen();
+    const task = pdfjs.getDocument({
+      data: bytes,
+      cMapUrl: '/pdf/cmaps/',
+      cMapPacked: true,
+      standardFontDataUrl: '/pdf/standard_fonts/',
+      wasmUrl: '/pdf/wasm/',
+    });
+    let destruction: Promise<void> | undefined;
+    const destroyTask = () => (destruction ??= task.destroy());
+    const abortLoading = () => {
+      void destroyTask().catch(() => {});
+    };
+    signal.addEventListener('abort', abortLoading, { once: true });
+    task.onPassword = () => {
+      void destroyTask().catch(() => {});
+    };
+    let doc: PDFDocumentProxy;
+    try {
+      doc = await task.promise;
+    } catch {
+      signal.removeEventListener('abort', abortLoading);
+      await destroyTask();
+      throw new Error(
+        'Não foi possível abrir ' +
+          file.name +
+          '. Verifique se é um PDF válido e sem senha.',
+      );
     }
-    await doc.cleanup();
-    sources.set(source, {
+    const source = crypto.randomUUID(),
+      pages: PageItem[] = [];
+    if (signal.aborted) {
+      await destroyTask();
+      throw new Error('Operação encerrada.');
+    }
+    resources.addSource(source, {
       name: file.name,
       file,
       doc,
-      destroy: () => task.destroy(),
+      destroy: destroyTask,
     });
-    return pages;
-  } catch (e) {
-    for (const p of pages) {
-      URL.revokeObjectURL(p.thumb);
-      thumbnailUrls.delete(p.thumb);
+    try {
+      for (let index = 0; index < doc.numPages; index++) {
+        resources.assertOpen();
+        progress(`Abrindo ${file.name} · ${index + 1}/${doc.numPages}`);
+        const page = await doc.getPage(index + 1);
+        const viewport = page.getViewport({
+          scale: 500 / page.getViewport({ scale: 1 }).width,
+        });
+        const canvas = document.createElement('canvas');
+        const thumb = document.createElement('canvas');
+        try {
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+          await page.render({
+            canvas,
+            canvasContext: ctx,
+            viewport,
+            background: 'rgb(255,255,255)',
+          }).promise;
+          const content = await page.getTextContent();
+          const text = content.items
+            .map((x) => ('str' in x ? x.str + (x.hasEOL ? '\n' : '') : ''))
+            .join(' ');
+          const pixels = ctx.getImageData(
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+          ).data;
+          const ink = measureInk(pixels);
+          const interiorInk = measureInteriorInk(
+            pixels,
+            canvas.width,
+            canvas.height,
+          );
+          pages.push({
+            id: crypto.randomUUID(),
+            source,
+            index,
+            rotation: 0,
+            thumb: '',
+            text,
+            ink,
+            interiorInk,
+          });
+          thumb.width = 220;
+          thumb.height = Math.max(
+            1,
+            Math.round((canvas.height / canvas.width) * 220),
+          );
+          thumb
+            .getContext('2d')!
+            .drawImage(canvas, 0, 0, thumb.width, thumb.height);
+          const blob = await withAbort(canvasBlob(thumb), signal);
+          resources.assertOpen();
+          const url = URL.createObjectURL(blob);
+          resources.addThumbnail(url);
+          pages[pages.length - 1].thumb = url;
+        } finally {
+          thumb.width = 0;
+          canvas.width = 0;
+          page.cleanup();
+        }
+        if (index === 0 || (index + 1) % 12 === 0 || index === doc.numPages - 1)
+          onPages?.([...pages]);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      await doc.cleanup();
+      return pages;
+    } catch (e) {
+      for (const p of pages) {
+        URL.revokeObjectURL(p.thumb);
+        thumbnailUrls.delete(p.thumb);
+      }
+      sources.delete(source);
+      await destroyTask();
+      throw e;
+    } finally {
+      signal.removeEventListener('abort', abortLoading);
     }
-    await task.destroy();
-    throw e;
   }
-}
-export async function renderPage(p: PageItem, width = 1300) {
-  const canvas = document.createElement('canvas');
-  if (!p.source) {
-    canvas.width = 595;
-    canvas.height = 842;
-    const c = canvas.getContext('2d')!;
-    c.fillStyle = 'white';
-    c.fillRect(0, 0, 595, 842);
-    return canvas;
-  }
-  const page = await sources.get(p.source)!.doc.getPage(p.index + 1);
-  const viewport = page.getViewport({
-    scale: width / page.getViewport({ scale: 1 }).width,
-    rotation: page.rotate + p.rotation,
-  });
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  try {
-    await page.render({
+  async function renderPage(p: PageItem, width = 1300) {
+    const canvas = document.createElement('canvas');
+    if (!p.source) {
+      canvas.width = 595;
+      canvas.height = 842;
+      const c = canvas.getContext('2d')!;
+      c.fillStyle = 'white';
+      c.fillRect(0, 0, 595, 842);
+      return canvas;
+    }
+    resources.assertOpen();
+    const source = sources.get(p.source);
+    if (!source) throw new Error('Arquivo de origem indisponível.');
+    const page = await source.doc.getPage(p.index + 1);
+    resources.assertOpen();
+    const viewport = page.getViewport({
+      scale: width / page.getViewport({ scale: 1 }).width,
+      rotation: page.rotate + p.rotation,
+    });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const rendering = page.render({
       canvas,
       canvasContext: canvas.getContext('2d')!,
       viewport,
       background: 'rgb(255,255,255)',
-    }).promise;
-    return canvas;
-  } catch (error) {
-    canvas.width = 0;
-    throw error;
-  } finally {
-    page.cleanup();
+    });
+    const abortRender = () => rendering.cancel();
+    signal.addEventListener('abort', abortRender, { once: true });
+    try {
+      await rendering.promise;
+      resources.assertOpen();
+      return canvas;
+    } catch (error) {
+      canvas.width = 0;
+      throw error;
+    } finally {
+      signal.removeEventListener('abort', abortRender);
+      page.cleanup();
+    }
   }
-}
-export function analyze(
-  pages: PageItem[],
-  options: AnalysisOptions,
-  onProgress: (message: string) => void,
-  cancel: { current: boolean },
-  onPage?: (page: PageItem, index: number) => void,
-  onDetail?: (progress: AnalysisProgress) => void,
-) {
-  return analyzePages(
-    pages,
-    options,
-    onProgress,
-    cancel,
-    onPage,
-    onDetail,
-    renderPage,
-  );
-}
-export async function exportPdf(
-  pages: PageItem[],
-  onProgress?: (progress: ExportProgress) => void,
-) {
-  await paintBeforeWork();
-  return new Promise<Uint8Array>((resolve, reject) => {
+  function analyze(
+    pages: PageItem[],
+    options: AnalysisOptions,
+    onProgress: (message: string) => void,
+    cancel: { current: boolean },
+    onPage?: (page: PageItem, index: number) => void,
+    onDetail?: (progress: AnalysisProgress) => void,
+  ) {
+    return analyzePages(
+      pages,
+      options,
+      checked(onProgress),
+      {
+        get current() {
+          return signal.aborted || cancel.current;
+        },
+      },
+      checked(onPage),
+      checked(onDetail),
+      renderPage,
+      resources.cache,
+      signal,
+    );
+  }
+  async function exportPdf(
+    pages: PageItem[],
+    onProgress?: (progress: ExportProgress) => void,
+    sharedWorker?: Worker,
+  ) {
+    await paintBeforeWork();
+    resources.assertOpen();
+    const worker =
+      sharedWorker ??
+      new Worker(new URL('./export.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+    try {
+      const response = await requestWorker(
+        worker,
+        {
+          type: 'export',
+          ...exportPayload(pages, sources),
+          reuseSource: !!sharedWorker,
+        },
+        { signal, expected: 'result', progress: checked(onProgress) },
+      );
+      if (response.type !== 'result')
+        throw new Error('Resultado de exportação indisponível.');
+      return response.bytes;
+    } finally {
+      if (!sharedWorker) worker.terminate();
+    }
+  }
+
+  async function pageSize(p: PageItem): Promise<[number, number]> {
+    if (!p.source)
+      return p.rotation % 180 ? [841.89, 595.28] : [595.28, 841.89];
+    resources.assertOpen();
+    const source = sources.get(p.source);
+    if (!source) throw new Error('Arquivo de origem indisponível.');
+    const page = await source.doc.getPage(p.index + 1);
+    resources.assertOpen();
+    const view = page.getViewport({
+      scale: 1,
+      rotation: page.rotate + p.rotation,
+    });
+    return [view.width, view.height];
+  }
+
+  /** Reuse one parsed source across consecutive parts, bounded to one document. */
+  async function exportPdfParts(
+    pages: PageItem[],
+    every: number,
+    onPart: (bytes: Uint8Array, part: number) => void,
+    onProgress?: (progress: ExportProgress, part: number) => void,
+  ) {
+    if (!Number.isSafeInteger(every) || every < 1)
+      throw new Error('Divisão inválida.');
+    resources.assertOpen();
     const worker = new Worker(new URL('./export.worker.ts', import.meta.url), {
       type: 'module',
     });
-    worker.onmessage = (e) => {
-      if (e.data.progress) {
-        onProgress?.(e.data.progress);
-        return;
-      }
-      worker.terminate();
-      if (e.data.error) reject(new Error(e.data.error));
-      else resolve(e.data.bytes);
-    };
-    worker.onerror = () => {
-      worker.terminate();
-      reject(new Error('Não foi possível gerar o PDF.'));
-    };
     try {
-      worker.postMessage(exportPayload(pages, sources));
-    } catch (e) {
+      for (let start = 0; start < pages.length; start += every) {
+        const part = Math.floor(start / every) + 1;
+        const bytes = await exportPdf(
+          pages.slice(start, start + every),
+          (progress) => onProgress?.(progress, part),
+          worker,
+        );
+        resources.assertOpen();
+        onPart(bytes, part);
+      }
+    } finally {
       worker.terminate();
-      reject(e);
     }
-  });
-}
+  }
 
-export async function pageSize(p: PageItem): Promise<[number, number]> {
-  if (!p.source) return p.rotation % 180 ? [841.89, 595.28] : [595.28, 841.89];
-  const page = await sources.get(p.source)!.doc.getPage(p.index + 1);
-  const view = page.getViewport({
-    scale: 1,
-    rotation: page.rotate + p.rotation,
-  });
-  return [view.width, view.height];
+  return {
+    signal,
+    importPdf: (
+      file: File,
+      progress: (message: string) => void,
+      onPages?: (pages: PageItem[]) => void,
+    ) =>
+      resources.run(() => importPdf(file, checked(progress), checked(onPages))),
+    renderPage: (page: PageItem, width?: number) =>
+      resources.run(() => renderPage(page, width)),
+    pageSize: (page: PageItem) => resources.run(() => pageSize(page)),
+    analyze: (...args: Parameters<typeof analyze>) =>
+      resources.run(() => analyze(...args)),
+    exportPdf: (...args: Parameters<typeof exportPdf>) =>
+      resources.run(() => exportPdf(...args)),
+    exportPdfParts: (...args: Parameters<typeof exportPdfParts>) =>
+      resources.run(() => exportPdfParts(...args)),
+    run: <T>(operation: () => Promise<T>) => resources.run(operation),
+    assertOpen: () => resources.assertOpen(),
+    releaseUnusedResources: (pages: PageItem[], history: PageItem[][]) =>
+      resources.retain(pages, history),
+    disposeResources: () => resources.dispose(),
+  };
 }

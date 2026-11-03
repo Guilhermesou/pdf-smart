@@ -5,58 +5,74 @@ import {
   emptyOcrDiagnostics,
   type OcrEngine,
 } from './native-ocr';
-export type OcrAssets = {
-  workerPath: string;
-  corePath: string;
-  langPath: string;
-};
-/** Asset locations are injected here so a desktop host can supply bundled OCR. */
+import { requestWorker } from './worker-client';
+import { withAbort } from './runtime';
+import type { OcrAssets } from './worker-protocol';
+export type { OcrAssets } from './worker-protocol';
+
 async function createWebOcrWorker(
   onProgress: (stage: string, percent: number) => void,
+  signal: AbortSignal,
   assets: OcrAssets = {
     workerPath: new URL('/ocr/worker.min.js', window.location.origin).href,
     corePath: new URL('/ocr/core', window.location.origin).href,
-    langPath: isTauri()
-      ? new URL('/ocr/lang', window.location.origin).href
-      : 'https://tessdata.projectnaptha.com/4.0.0',
+    langPath: new URL('/ocr/lang', window.location.origin).href,
   },
-) {
-  const { createWorker, PSM } = await import('tesseract.js');
-  const stages: Record<string, string> = {
-    'loading tesseract core': 'Carregando motor OCR',
-    'initializing tesseract': 'Inicializando OCR',
-    'loading language traineddata': 'Carregando modelo de idioma',
-    'initializing api': 'Preparando leitura',
-    'recognizing text': 'Reconhecendo carimbo e texto',
-  };
-  const worker = await createWorker('eng', 1, {
-    ...assets,
-    errorHandler: () => {},
-    logger: (event) =>
-      onProgress(
-        stages[event.status] ?? 'Preparando OCR',
-        Math.min(100, Math.max(0, Math.round(event.progress * 100))),
-      ),
+): Promise<OcrEngine> {
+  if (signal.aborted) throw new Error('Operação encerrada.');
+  const host = new Worker(new URL('./ocr.worker.ts', import.meta.url), {
+    type: 'module',
   });
+  let available = true;
+  const request = async (
+    data: import('./worker-protocol').OcrRequest,
+    expected: 'ready' | 'ocr-result',
+  ) => {
+    if (!available) throw new Error('O motor OCR foi encerrado nesta análise.');
+    try {
+      return await requestWorker(host, data, {
+        expected,
+        signal,
+        timeoutMs: 30_000,
+        ocrProgress: onProgress,
+      });
+    } catch (error) {
+      available = false;
+      throw error;
+    }
+  };
   try {
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+    await request({ type: 'ocr-start', assets }, 'ready');
     const stats = emptyOcrDiagnostics();
     return {
-      recognize: async (canvas: HTMLCanvasElement) => {
+      recognize: async (canvas) => {
+        if (!available)
+          throw new Error('O motor OCR foi encerrado nesta análise.');
         const started = performance.now();
         stats.tesseractCalls++;
         try {
-          return await worker.recognize(canvas);
+          // Encoding is bounded by the analysis canvas size and avoids a missing toBlob callback.
+          const result = await request(
+            { type: 'ocr-recognize', image: canvas.toDataURL('image/png') },
+            'ocr-result',
+          );
+          if (result.type !== 'ocr-result')
+            throw new Error('Leitura OCR indisponível.');
+          return { data: result.data };
         } finally {
           stats.tesseractMs += performance.now() - started;
         }
       },
-      setParameters: worker.setParameters,
-      terminate: worker.terminate,
+      setParameters: (parameters) =>
+        request({ type: 'ocr-parameters', parameters }, 'ready'),
+      terminate: async () => {
+        available = false;
+        host.terminate();
+      },
       diagnostics: () => ({ ...stats }),
     };
   } catch (error) {
-    await worker.terminate();
+    host.terminate();
     throw error;
   }
 }
@@ -64,12 +80,14 @@ async function createWebOcrWorker(
 export async function createOcrWorker(
   onProgress: (stage: string, percent: number) => void,
   preference: 'auto' | 'tesseract' = 'auto',
+  signal = new AbortController().signal,
 ): Promise<OcrEngine> {
-  const fallback = () => createWebOcrWorker(onProgress);
+  const fallback = () => createWebOcrWorker(onProgress, signal);
   if (preference === 'auto' && isTauri()) {
     try {
       return await nativeOcrEngine(
-        (command, args) => invoke<NativeResult>(command, args),
+        (command, args) =>
+          withAbort(invoke<NativeResult>(command, args), signal),
         onProgress,
         fallback,
       );

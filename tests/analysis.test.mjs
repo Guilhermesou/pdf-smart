@@ -13,8 +13,8 @@ registerHooks({
   },
 });
 const { analyzePages } = await import('../lib/pdf/analysis.ts');
-const { AnalysisCache, analysisCache } =
-  await import('../lib/pdf/analysis-cache.ts');
+const { AnalysisCache } = await import('../lib/pdf/analysis-cache.ts');
+const analysisCache = new AnalysisCache();
 const page = {
   id: 'p',
   source: 'fixture',
@@ -32,6 +32,41 @@ const visual = {
   outsideInk: 0,
   axis: 0,
 };
+
+test('progress stays live during a pending render and its timer stops at completion', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const details = [];
+  let release, rendering;
+  const startedRendering = new Promise((resolve) => {
+    rendering = resolve;
+  });
+  const result = analyzePages(
+    [page],
+    { ocr: false, scanMode: true, tolerance: 0.003, bypassCache: true },
+    () => {},
+    { current: false },
+    undefined,
+    (detail) => details.push(detail),
+    async () => {
+      rendering();
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    },
+  );
+  await startedRendering;
+  const before = details.length;
+  t.mock.timers.tick(1000);
+  assert.equal(details.length, before + 1);
+  assert.equal(details.at(-1).current, 1);
+  assert.equal(details.at(-1).completed, 0);
+  const { createCanvas } = await import('@napi-rs/canvas');
+  release(createCanvas(100, 140));
+  await result;
+  const completed = details.length;
+  t.mock.timers.tick(5000);
+  assert.equal(details.length, completed);
+});
 
 test('cached OCR avoids rendering and worker setup; current settings still determine verdict', async () => {
   analysisCache.retainSources(new Set());
@@ -54,6 +89,7 @@ test('cached OCR avoids rendering and worker setup; current settings still deter
     async () => {
       throw Error('Cache should avoid rendering');
     },
+    analysisCache,
   );
   assert.equal(result.pages[0].verdict.kind, 'stamp');
   assert.equal(details.at(-1).completed, 1);
@@ -147,6 +183,7 @@ test('bypass cache forces fresh visual measurement and reports rendering separat
       ctx.fillRect(0, 0, 100, 140);
       return canvas;
     },
+    analysisCache,
   );
   assert.equal(renders, 1);
   assert.equal(last.cachedPages, 0);

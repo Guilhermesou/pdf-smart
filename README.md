@@ -21,7 +21,7 @@ A heurística estima o fundo do scan, mede proporção de pixels escuros e cruza
 
 A edição é estrutural, por páginas: não altera texto existente, não faz redação segura nem preserva assinaturas digitais. Documentos criptografados não são aceitos. Formulários interativos, marcadores e metadados documentais não têm preservação garantida na reconstrução. Arquivos muito grandes são limitados pela memória do dispositivo; o histórico mantém até 20 operações. Arquivos e miniaturas sem referência no documento ou no histórico são liberados. Miniaturas de todas as páginas são geradas na importação, mas apenas as linhas visíveis e uma linha de margem de cada lado são montadas na galeria. O PDF.js ainda mantém estruturas do documento em memória; a compressão rasterizada também precisa de memória para construir o resultado.
 
-A detecção é heurística: assinaturas, desenhos claros, carimbos inclinados, páginas com bordas e digitalizações degradadas precisam de revisão. Há testes sintéticos e regressão local com quatro imagens reais fornecidas pelo usuário. O PDF original completo ainda não foi validado. O modelo de idioma é baixado de tessdata.projectnaptha.com no primeiro uso; o PDF não é enviado. Fontes, worker e WASM são servidos pelo próprio aplicativo.
+A detecção é heurística: assinaturas, desenhos claros, carimbos inclinados, páginas com bordas e digitalizações degradadas precisam de revisão. Há testes sintéticos e regressão local com quatro imagens reais fornecidas pelo usuário. O PDF original completo ainda não foi validado. O modelo de idioma é incluído no aplicativo e servido localmente; o PDF não é enviado. Fontes, worker e WASM são servidos pelo próprio aplicativo.
 
 A aplicação expõe a ferramenta WebMCP somente de leitura `read_pdf_pages` quando o navegador suporta document.modelContext. Esse contrato não foi validado em um navegador com WebMCP disponível. A compilação, os testes automatizados de classificação/exportação e o teste OCR são separados de testes de interação do navegador, que não foram executados.
 
@@ -73,6 +73,10 @@ O adaptador preserva o contrato do OCR e as tentativas de leitura de carimbos in
 
 Compilar em macOS com Xcode/Command Line Tools e Rust: `npm install`, `npm run desktop:build`. O script prepara o binário Swift da arquitetura corrente e o frontend estático; o Tauri gera o `.app` em `src-tauri/target/release/bundle/macos`. Esta primeira compilação é local e não notarizada para distribuição pública. Pasta de destino e notificações nativas continuam pendentes; os fluxos de interface no WebView ainda precisam de validação.
 
+### Windows
+
+Em Windows com Rust e Node 22, `npm install` e `npm run desktop:build:windows` geram o instalador NSIS em `src-tauri/target/release/bundle/nsis`. O instalador inclui o bootstrapper do Microsoft Edge WebView2 para máquinas que ainda não o possuam. O OCR continua local e offline via Tesseract/WASM; Apple Vision é exclusivo do macOS e não é empacotado no Windows. O workflow manual **Build Windows desktop app** também produz esse `.exe` como artefato no GitHub Actions.
+
 Validação: `node tests/native-mac-check.mjs` após preparar o binário. No Mac de desenvolvimento, a consulta retornou Neural Engine disponível; a leitura sintética de EM BRANCO teve confiança 100 e retornou Neural Engine solicitado. Entrada inválida não interrompeu o processo. Essa é validação funcional do motor, não perfil de hardware ou benchmark de aceleração. `node --experimental-strip-types --test tests/*.test.mjs` inclui falha de backend, fallback e preservação dos parâmetros.
 
 ### Diagnóstico de desempenho 0.1.1
@@ -86,3 +90,28 @@ Benchmark reproduzível: `node tests/ocr-benchmark.mjs`, após preparar o binár
 ### Fluxo de documentos 0.1.2
 
 Limpar documento fecha a sessão após confirmação, limpa seleção, filtros, resultados, histórico e ampliação; preserva as preferências de análise. A liberação das origens, URLs e cache segue o ciclo de vida existente ao remover as referências. Todas e Sugestões são controles permanentes, inclusive com zero sugestões. Excluir a última sugestão retorna à lista completa de páginas restantes. Seleção rápida e intervalos compartilham uma faixa compacta; os números selecionados ficam em detalhe expansível. Compilação verificada; interação no WebView ainda não validada nesta alteração.
+
+
+### Melhorias de organização e confiabilidade
+
+A importação publica a primeira página pronta e depois lotes de até 12 páginas, permitindo acompanhar as miniaturas durante o carregamento. As operações de edição ficam bloqueadas até a conclusão. Isso antecipa a visualização; todas as páginas ainda são renderizadas e não há carregamento de miniaturas por demanda nesta etapa.
+
+A ampliação tem navegação anterior/próxima e revisão com “Manter e avançar” ou “Marcar para exclusão e avançar”. Marcar apenas altera a seleção: a remoção acontece ao acionar Excluir no editor. O ciclo de vida da prévia fica em `hooks/use-page-preview.ts`, com invalidação de respostas antigas e liberação de URLs ao fechar. Há também refazer, duplicar páginas selecionadas, inverter ordem e inverter seleção; origens e miniaturas necessárias para refazer continuam retidas.
+
+A divisão por quantidade reutiliza um worker e mantém no máximo uma origem PDF analisada entre partes consecutivas. A origem é descartada após falha ou término da operação. O OCR nativo tem prazo de 8 segundos por chamada, cobrindo escrita e leitura do processo; ao expirar, encerra o processo para permitir o fallback local existente.
+
+Verificações: `npm test`, `npm run typecheck`, `npm run lint` e `npx vite build --config vite.desktop.config.ts`. Os testes de timeout podem ser executados com `rustc --test src-tauri/src/watchdog.rs -o /tmp/pdf-smart-watchdog-test && /tmp/pdf-smart-watchdog-test`. O lint ignora bibliotecas empacotadas e artefatos gerados; imagens locais de Blob e componentes que usam papéis ARIA são permitidos explicitamente.
+
+A montagem da compressão rasterizada também usa worker. As imagens JPEG são transferidas sequencialmente, com confirmação por página, e canvases temporários são liberados mesmo em caso de erro. A renderização e codificação das imagens continuam no navegador; isso não elimina todos os custos da thread principal nem torna a memória constante. A exportação estrutural continua sendo usada se gerar um arquivo menor.
+
+### Espera do OCR 0.1.4
+
+A consulta inicial e a preparação da imagem nativa têm prazo de 3 segundos cada. A leitura por IPC tem prazo de 8 segundos também no frontend, além do watchdog do processo. Quando uma dessas etapas expira, a análise passa a usar Tesseract local pelo restante da execução. O progresso e o tempo decorrido atualizam a cada segundo durante esperas; mudanças de etapa aparecem imediatamente. Testes simulam ausência de retorno do canvas, FileReader e IPC, e verificam que respostas nativas atrasadas não substituem a alternativa.
+
+## Arquitetura e contribuição
+
+A interface usa MVVM com hooks React, reducer puro para documento/histórico e contratos injetados para os serviços de PDF. Consulte [a revisão da arquitetura](docs/architecture.md) para as fronteiras, decisões, achados e próximas prioridades. `npm run typecheck`, `npm run lint`, `npm test` e o build do frontend desktop são executados pelo workflow de qualidade em pushes e pull requests. Os testes exigem Node 22.15 ou superior; a CI usa Node 24. O repositório ainda precisa de uma licença escolhida pelo autor antes da publicação como open source.
+
+### Sessões e encerramento 0.1.7
+
+Cada editor possui documentos, miniaturas e cache próprios. O encerramento cancela o sinal da sessão e aguarda tarefas antes de liberar os recursos. Exportação, compressão e OCR usam contratos tipados e validação de mensagens. Pedidos de exportação/compressão têm prazo de 120 segundos; inicialização e leituras do Tesseract têm prazo de 30 segundos. Tesseract usa o modelo de idioma empacotado também na versão web. Veja [os detalhes e limites da validação](docs/architecture.md#sessões-e-workers-017).

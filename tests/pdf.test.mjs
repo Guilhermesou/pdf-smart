@@ -1,3 +1,4 @@
+import './register-types.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFDocument, degrees } from 'pdf-lib';
@@ -50,11 +51,12 @@ test('export worker merges, reorders, deletes, inserts and rotates without raste
   await import('../lib/pdf/export.worker.ts');
   await self.onmessage({
     data: {
+      type: 'export',
       sources: { a: await a.save(), b: await b.save() },
       pages: [
         { source: 'b', index: 0, rotation: 0 },
         { source: 'a', index: 1, rotation: 90 },
-        { source: null, rotation: 0 },
+        { source: null, index: 0, rotation: 0 },
       ],
     },
   });
@@ -67,6 +69,7 @@ test('export worker merges, reorders, deletes, inserts and rotates without raste
   assert.ok(Math.abs(out.getPage(2).getWidth() - 595.28) < 0.01);
   await self.onmessage({
     data: {
+      type: 'export',
       sources: {},
       pages: [{ source: 'missing', index: 0, rotation: 0 }],
     },

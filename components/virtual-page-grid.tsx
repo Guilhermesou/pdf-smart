@@ -83,6 +83,8 @@ export function VirtualPageGrid<T>({
         className={`virtual-viewport ${className}`}
         ref={view}
         onScroll={(e) => setTop(e.currentTarget.scrollTop)}
+        // Keyboard focus is required to scroll this bounded viewport.
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
         aria-label="Páginas do documento"
       >

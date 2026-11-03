@@ -27,7 +27,7 @@ try {
     const stats = scanRegion(pixels, c.width, c.height);
     const result = await recognizeScanStamp(
       {
-        setParameters: worker.setParameters,
+        setParameters: (parameters) => worker.setParameters(parameters),
         recognize: (canvas) => worker.recognize(canvas.toBuffer('image/png')),
       },
       c,

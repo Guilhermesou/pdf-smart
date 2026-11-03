@@ -1,4 +1,4 @@
-import { canvasBlob } from './runtime';
+import { canvasBlob, withTimeout } from './runtime';
 export type NativeResult = {
   text: string;
   confidence: number;
@@ -47,7 +47,11 @@ export async function nativeOcrEngine(
   progress: (stage: string, percent: number) => void,
   fallback: () => Promise<OcrEngine>,
 ): Promise<OcrEngine> {
-  const probe = await invoke('native_ocr', { image: null });
+  const probe = await withTimeout(
+    invoke('native_ocr', { image: null }),
+    3000,
+    'O motor nativo não respondeu à inicialização em 3 segundos.',
+  );
   if (probe.error || probe.engine !== 'apple-vision')
     throw Error(probe.error ?? 'Motor não disponível');
   progress(
@@ -67,22 +71,39 @@ export async function nativeOcrEngine(
     }),
     async recognize(canvas) {
       if (web) return web.recognize(canvas);
+      const started = performance.now();
+      let nativeStarted: number | undefined;
       try {
-        const started = performance.now();
         progress('Apple Vision · preparando imagem', 0);
-        const blob = await canvasBlob(canvas, 'image/png');
-        const image = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(',')[1]);
-          reader.onerror = () => reject(reader.error);
-          reader.readAsDataURL(blob);
-        });
+        const image = await withTimeout(
+          (async () => {
+            const blob = await canvasBlob(canvas, 'image/png');
+            return new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                if (typeof reader.result === 'string')
+                  resolve(reader.result.split(',')[1]);
+                else reject(new Error('Imagem OCR inválida.'));
+              };
+              reader.onerror = () => reject(reader.error);
+              reader.readAsDataURL(blob);
+            });
+          })(),
+          3000,
+          'A preparação da imagem nativa excedeu 3 segundos.',
+        );
         progress('Apple Vision · reconhecendo texto', 0);
-        const result = await invoke('native_ocr', { image });
-        const elapsed = performance.now() - started;
+        nativeStarted = performance.now();
         stats.appleCalls++;
+        const result = await withTimeout(
+          invoke('native_ocr', { image }),
+          8000,
+          'O motor nativo excedeu 8 segundos. Usando OCR alternativo.',
+        );
+        const elapsed = performance.now() - started;
         stats.appleMs += result.elapsedMs ?? 0;
         stats.transferMs += Math.max(0, elapsed - (result.elapsedMs ?? 0));
+        nativeStarted = undefined;
         if (result.error) throw Error(result.error);
         if (result.acceleration === 'neural-engine-requested')
           stats.neuralRequests++;
@@ -94,6 +115,10 @@ export async function nativeOcrEngine(
         );
         return { data: { text: result.text, confidence: result.confidence } };
       } catch (error) {
+        if (nativeStarted !== undefined) {
+          stats.appleMs += performance.now() - nativeStarted;
+          stats.transferMs += nativeStarted - started;
+        }
         stats.fallbackReason =
           error instanceof Error ? error.message : String(error);
         progress('Motor nativo indisponível · usando OCR alternativo', 0);

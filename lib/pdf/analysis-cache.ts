@@ -42,9 +42,11 @@ export class AnalysisCache {
     if (this.entries.size > this.capacity)
       this.entries.delete(this.entries.keys().next().value!);
   }
+  clear() {
+    this.entries.clear();
+  }
   retainSources(ids: Set<string>) {
     for (const key of this.entries.keys())
       if (!ids.has(key.slice(0, key.indexOf(':')))) this.entries.delete(key);
   }
 }
-export const analysisCache = new AnalysisCache();

@@ -2,7 +2,7 @@ import { createOcrWorker } from './ocr';
 import { evaluatePage } from './evaluate-page';
 import type { PageItem, AnalysisProgress, AnalysisOptions } from './types';
 import { yieldTask } from './runtime';
-import { analysisCache } from './analysis-cache';
+import { AnalysisCache } from './analysis-cache';
 import { recognizeScanStamp, scanRegion, scanNeedsReview } from './scan';
 import { shouldRunOcr, withoutPageNumbers, type Verdict } from './detection';
 export async function analyzePages(
@@ -13,6 +13,8 @@ export async function analyzePages(
   onPage: ((page: PageItem, index: number) => void) | undefined,
   onDetail: ((progress: AnalysisProgress) => void) | undefined,
   renderPage: (page: PageItem, width: number) => Promise<HTMLCanvasElement>,
+  cache = new AnalysisCache(),
+  signal = new AbortController().signal,
 ) {
   let worker: Awaited<ReturnType<typeof createOcrWorker>> | undefined;
   const result: PageItem[] = [];
@@ -28,7 +30,12 @@ export async function analyzePages(
   };
   let cachedPages = 0;
   let lastDetailTime = 0;
+  let currentStage = 'Preparando análise';
+  let currentPageProgress: number | undefined;
   const detail = (stage: string, pageProgress?: number, force = false) => {
+    force = force || stage !== currentStage;
+    currentStage = stage;
+    currentPageProgress = pageProgress;
     const now = performance.now();
     if (force || now - lastDetailTime > 100) {
       lastDetailTime = now;
@@ -49,6 +56,9 @@ export async function analyzePages(
   let failed = 0,
     ocrUnavailable = false,
     activePage = 0;
+  const heartbeat = setInterval(() => {
+    if (activePage > 0) detail(currentStage, currentPageProgress, true);
+  }, 1000);
   try {
     for (let i = 0; i < pages.length; i++) {
       if (cancel.current) break;
@@ -67,8 +77,7 @@ export async function analyzePages(
         options.ocrEngine === 'tesseract'
           ? `${p.source}:tesseract:${p.index}`
           : `${p.source}:${p.index}`;
-      const cached =
-        (options.bypassCache ? undefined : analysisCache.get(key)) ?? {};
+      const cached = (options.bypassCache ? undefined : cache.get(key)) ?? {};
       let reused = false;
       let text = p.text,
         confidence = 100;
@@ -127,6 +136,7 @@ export async function analyzePages(
                 worker = await createOcrWorker(
                   (stage, percent) => detail(stage, percent),
                   options.ocrEngine,
+                  signal,
                 );
               } finally {
                 timings.setupMs += performance.now() - setupStarted;
@@ -170,7 +180,7 @@ export async function analyzePages(
           if (!worker) ocrUnavailable = true;
         }
       }
-      analysisCache.set(key, cached);
+      cache.set(key, cached);
       if (reused) cachedPages++;
       const last = {
         ...p,
@@ -189,6 +199,7 @@ export async function analyzePages(
       detail('Concluída', 100, true);
     }
   } finally {
+    clearInterval(heartbeat);
     await worker?.terminate();
   }
   return { pages: result, failed };

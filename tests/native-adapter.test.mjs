@@ -8,6 +8,89 @@ registerHooks({
   },
 });
 const { nativeOcrEngine } = await import('../lib/pdf/native-ocr.ts');
+const flushPromises = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+};
+
+test('native probe cannot indefinitely block platform fallback', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pending = nativeOcrEngine(
+    () => new Promise(() => {}),
+    () => {},
+    async () => {},
+  );
+  const rejected = assert.rejects(pending, /inicialização em 3 segundos/);
+  t.mock.timers.tick(3000);
+  await rejected;
+});
+
+for (const stalledStage of ['canvas', 'reader', 'invoke']) {
+  test(`stalled ${stalledStage} switches to fallback once and ignores late native output`, async (t) => {
+    const original = globalThis.FileReader;
+    globalThis.FileReader = class {
+      readAsDataURL() {
+        if (stalledStage === 'reader') return;
+        this.result = 'data:image/png;base64,eA==';
+        this.onload();
+      }
+    };
+    let calls = 0,
+      fallbacks = 0,
+      reads = 0,
+      completeNative;
+    try {
+      const engine = await nativeOcrEngine(
+        async () => {
+          calls++;
+          if (calls === 1)
+            return { engine: 'apple-vision', acceleration: 'system' };
+          return new Promise((resolve) => {
+            completeNative = resolve;
+          });
+        },
+        () => {},
+        async () => {
+          fallbacks++;
+          return {
+            recognize: async () => {
+              reads++;
+              return { data: { text: 'EM BRANCO', confidence: 90 } };
+            },
+            setParameters: async () => {},
+            terminate: async () => {},
+          };
+        },
+      );
+      t.mock.timers.enable({ apis: ['setTimeout'] });
+      const canvas = {
+        toBlob: (done) => {
+          if (stalledStage !== 'canvas') done(new Blob(['x']));
+        },
+      };
+      const pending = engine.recognize(canvas);
+      await flushPromises();
+      t.mock.timers.tick(stalledStage === 'invoke' ? 8000 : 3000);
+      assert.equal((await pending).data.text, 'EM BRANCO');
+      completeNative?.({
+        text: 'late',
+        confidence: 100,
+        acceleration: 'system',
+      });
+      await flushPromises();
+      assert.equal((await engine.recognize(canvas)).data.text, 'EM BRANCO');
+      assert.equal(fallbacks, 1);
+      assert.equal(reads, 2);
+      assert.equal(calls, stalledStage === 'invoke' ? 2 : 1);
+      assert.equal(
+        engine.diagnostics().appleCalls,
+        stalledStage === 'invoke' ? 1 : 0,
+      );
+      assert.match(engine.diagnostics().fallbackReason, /excedeu/);
+    } finally {
+      globalThis.FileReader = original;
+    }
+  });
+}
 test('unavailable native backend is rejected for platform fallback', async () => {
   await assert.rejects(
     nativeOcrEngine(

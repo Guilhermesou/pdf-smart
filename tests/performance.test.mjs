@@ -1,3 +1,4 @@
+import './register-types.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -105,6 +106,7 @@ test('batch export preserves shared font resources and reports progress separate
   await import('../lib/pdf/export.worker.ts?performance');
   await self.onmessage({
     data: {
+      type: 'export',
       sources: { a: new Blob([await doc.save()]) },
       pages: Array.from({ length: 64 }, (_, index) => ({
         source: 'a',
@@ -124,4 +126,59 @@ test('batch export preserves shared font resources and reports progress separate
       p.node.Resources().lookup(PDFName.of('Font')).values()[0].toString(),
     );
   assert.equal(new Set(refs).size, 1);
+});
+
+test('split worker reuses one source and recovers after a failed part', async () => {
+  const fixture = await PDFDocument.create();
+  fixture.addPage([200, 300]);
+  fixture.addPage([400, 500]);
+  const file = new Blob([await fixture.save()]);
+  // Preserve the exact method for restoration; calls below explicitly bind PDFDocument.
+  // oxlint-disable-next-line typescript/unbound-method
+  const originalLoad = PDFDocument.load;
+  let reads = 0;
+  PDFDocument.load = async (...args) => {
+    reads++;
+    return originalLoad.apply(PDFDocument, args);
+  };
+  let response;
+  globalThis.self = {
+    postMessage: (value) => {
+      if (!value.progress) response = value;
+    },
+  };
+  try {
+    await import('../lib/pdf/export.worker.ts?split-cache');
+    for (const index of [0, 1]) {
+      await self.onmessage({
+        data: {
+          type: 'export',
+          sources: { a: file },
+          reuseSource: true,
+          pages: [{ source: 'a', index, rotation: 0 }],
+        },
+      });
+      assert.ok(response.bytes, response.error);
+      const output = await originalLoad.call(PDFDocument, response.bytes);
+      assert.equal(output.getPageCount(), 1);
+      assert.equal(output.getPage(0).getWidth(), index === 0 ? 200 : 400);
+    }
+    assert.equal(reads, 1, 'consecutive parts parse the source only once');
+    await self.onmessage({
+      data: { type: 'export', sources: {}, pages: [], reuseSource: true },
+    });
+    assert.ok(response.error);
+    await self.onmessage({
+      data: {
+        type: 'export',
+        sources: { a: file },
+        reuseSource: true,
+        pages: [{ source: 'a', index: 0, rotation: 0 }],
+      },
+    });
+    assert.ok(response.bytes, response.error);
+    assert.equal(reads, 2, 'an error clears retained state');
+  } finally {
+    PDFDocument.load = originalLoad;
+  }
 });

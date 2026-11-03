@@ -1,9 +1,9 @@
 {
   "name": "sites-project",
-  "version": "0.1.0",
+  "version": "0.1.7",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.15.0"
   },
   "scripts": {
     "dev": "vinext dev",
@@ -12,7 +12,11 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "desktop:prepare": "node scripts/build-native.mjs && vite build --config vite.desktop.config.ts",
-    "desktop:build": "tauri build && node scripts/sign-desktop.mjs"
+    "desktop:build": "tauri build && node scripts/sign-desktop.mjs",
+    "desktop:build:windows": "tauri build --bundles nsis",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "desktop:build:windows:cross": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
