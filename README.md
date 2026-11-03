@@ -19,9 +19,9 @@ A heurística estima o fundo do scan, mede proporção de pixels escuros e cruza
 
 ## Limites desta versão
 
-A edição é estrutural, por páginas: não altera texto existente, não faz redação segura nem preserva assinaturas digitais. Documentos criptografados não são aceitos. Formulários interativos, marcadores e metadados documentais não têm preservação garantida na reconstrução. Arquivos muito grandes são limitados pela memória do dispositivo; o histórico mantém até 20 operações. Arquivos e miniaturas sem referência no documento ou no histórico são liberados. Miniaturas de todas as páginas são geradas na importação, mas apenas as linhas visíveis e uma linha de margem de cada lado são montadas na galeria. O PDF.js ainda mantém estruturas do documento em memória; a compressão rasterizada também precisa de memória para construir o resultado.
+A edição é estrutural, por páginas: não altera texto existente, não faz redação segura nem preserva assinaturas digitais. Documentos com senha de abertura solicitam a chave ao usuário para desbloqueio local em memória; restrições de permissão são ignoradas com segurança para reconstrução. Formulários interativos, marcadores e metadados documentais não têm preservação garantida na reconstrução. Arquivos muito grandes são limitados pela memória do dispositivo; o histórico mantém até 20 operações. Arquivos e miniaturas sem referência no documento ou no histórico são liberados. Miniaturas de todas as páginas são geradas na importação, mas apenas as linhas visíveis e uma linha de margem de cada lado são montadas na galeria. O PDF.js ainda mantém estruturas do documento em memória; a compressão rasterizada também precisa de memória para construir o resultado.
 
-A detecção é heurística: assinaturas, desenhos claros, carimbos inclinados, páginas com bordas e digitalizações degradadas precisam de revisão. Há testes sintéticos e regressão local com quatro imagens reais fornecidas pelo usuário. O PDF original completo ainda não foi validado. O modelo de idioma é incluído no aplicativo e servido localmente; o PDF não é enviado. Fontes, worker e WASM são servidos pelo próprio aplicativo.
+A detecção é heurística: assinaturas, desenhos claros, carimbos inclinados, páginas com bordas e digitalizações degradadas precisam de revisão. Há testes sintéticos e regressão local com quatro imagens reais fornecidas pelo usuário. O PDF original completo ainda não foi validado. Os modelos de idioma (português `por` e inglês `eng`) são incluídos no aplicativo e servidos localmente; o PDF não é enviado. Fontes, worker e WASM são servidos pelo próprio aplicativo.
 
 A aplicação expõe a ferramenta WebMCP somente de leitura `read_pdf_pages` quando o navegador suporta document.modelContext. Esse contrato não foi validado em um navegador com WebMCP disponível. A compilação, os testes automatizados de classificação/exportação e o teste OCR são separados de testes de interação do navegador, que não foram executados.
 
@@ -115,3 +115,14 @@ A interface usa MVVM com hooks React, reducer puro para documento/histórico e c
 ### Sessões e encerramento 0.1.7
 
 Cada editor possui documentos, miniaturas e cache próprios. O encerramento cancela o sinal da sessão e aguarda tarefas antes de liberar os recursos. Exportação, compressão e OCR usam contratos tipados e validação de mensagens. Pedidos de exportação/compressão têm prazo de 120 segundos; inicialização e leituras do Tesseract têm prazo de 30 segundos. Tesseract usa o modelo de idioma empacotado também na versão web. Veja [os detalhes e limites da validação](docs/architecture.md#sessões-e-workers-017).
+
+### Modernização, Produtividade e Chancelaria 0.1.8
+
+A versão 0.1.8 traz recursos de produtividade jurídica e corporativa:
+- **Numeração Sequencial / Chancelaria ao Exportar:** Opção de estampar páginas ("Fls. X", "Pág. X de N" ou simples) sem rasterização, preservando texto e vetores originais.
+- **Diálogo Nativo Desktop:** O aplicativo Tauri desktop abre caixas de diálogo nativas do sistema operacional (NSSavePanel no Mac / IFileDialog no Windows) para salvar arquivos em pastas à escolha do usuário.
+- **Suporte a PDFs com Senha:** Desbloqueio interativo de documentos criptografados e suporte a PDFs com restrições de permissão.
+- **Busca Textual Local:** Localização instantânea de termos e números com seleção automática de todas as páginas correspondentes.
+- **Atalhos de Teclado:** Controle completo de fluxo via teclado (`Cmd/Ctrl+A`, `Delete`/`Backspace`, `R` para rotacionar, `Escape`, `Cmd/Ctrl+Z`).
+- **OCR Bilíngue Offline:** Empacotamento do modelo em português (`por.traineddata.gz`) junto ao inglês (`por+eng`), ampliando a precisão em termos e acentos brasileiros.
+- **Tema Escuro / Claro (Dark Mode):** Alternador no topo e sincronização automática com preferências do sistema operacional.
