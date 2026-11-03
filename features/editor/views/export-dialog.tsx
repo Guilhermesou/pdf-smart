@@ -7,6 +7,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import { ScanLine } from 'lucide-react';
 import type { EditorViewModel } from '../view-model/use-editor-view-model';
 type Props = {
   model: Pick<
@@ -24,6 +25,7 @@ type Props = {
     | 'requestCancel'
     | 'splitPdf'
     | 'splitPdfEvery'
+    | 'splitByBlankSeparators'
     | 'compressPdf'
   >;
 };
@@ -42,8 +44,15 @@ export function ExportDialog({ model }: Props) {
     requestCancel,
     splitPdf,
     splitPdfEvery,
+    splitByBlankSeparators,
     compressPdf,
   } = model;
+
+  const detectedBlanksCount = pages.filter(
+    (p) =>
+      p.verdict?.kind === 'blank' ||
+      (p.ink === 0 && !p.text && p.source !== null),
+  ).length;
   return (
     <>
       {' '}
@@ -109,6 +118,17 @@ export function ExportDialog({ model }: Props) {
                   onClick={() => void splitPdfEvery()}
                 >
                   Baixar partes
+                </button>
+              </div>
+              <div className="split-every">
+                <button
+                  className="secondary"
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}
+                  disabled={!!busy || !pages.length}
+                  onClick={() => void splitByBlankSeparators()}
+                  title="Detecta e separa blocos de documentos divididos por páginas em branco"
+                >
+                  <ScanLine size={16} /> Separar por folhas em branco ({detectedBlanksCount})
                 </button>
               </div>
               <p className="tool-hint">

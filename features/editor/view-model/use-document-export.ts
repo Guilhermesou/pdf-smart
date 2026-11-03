@@ -104,6 +104,74 @@ export function useDocumentExport({
     }
   }
 
+  async function splitByBlankSeparators() {
+    if (locked.current) return;
+    const blankIndices = new Set<number>();
+    pages.forEach((p, idx) => {
+      if (
+        p.verdict?.kind === 'blank' ||
+        (p.ink === 0 && !p.text && p.source !== null)
+      ) {
+        blankIndices.add(idx);
+      }
+    });
+
+    if (!blankIndices.size) {
+      setMessage(
+        'Nenhuma folha em branco detectada. Execute a detecção antes de dividir.',
+      );
+      return;
+    }
+
+    if (!beginOperation('export', 'Separando por páginas em branco…')) return;
+    setAnalysisProgress(null);
+
+    try {
+      await paintBeforeWork();
+      const parts: PageItem[][] = [];
+      let currentPart: PageItem[] = [];
+
+      for (let i = 0; i < pages.length; i++) {
+        if (blankIndices.has(i)) {
+          if (currentPart.length > 0) {
+            parts.push(currentPart);
+            currentPart = [];
+          }
+        } else {
+          currentPart.push(pages[i]);
+        }
+      }
+      if (currentPart.length > 0) {
+        parts.push(currentPart);
+      }
+
+      if (!parts.length) {
+        throw new Error(
+          'Todas as páginas do documento foram identificadas como em branco.',
+        );
+      }
+
+      for (let i = 0; i < parts.length; i++) {
+        const partNum = i + 1;
+        setBusy(`Exportando documento ${partNum}/${parts.length}…`);
+        const bytes = await exportPdf(parts[i]);
+        await saveBytes(
+          bytes,
+          `${name}-documento-${String(partNum).padStart(2, '0')}.pdf`,
+        );
+      }
+
+      setMessage(
+        `${pages.length} páginas divididas em ${parts.length} documentos (removidas ${blankIndices.size} folhas em branco).`,
+      );
+      setToolDialog(null);
+    } catch (e) {
+      setMessage(String(e));
+    } finally {
+      finishOperation();
+    }
+  }
+
   async function compressPdf() {
     if (locked.current || !rasterAccepted) return;
     if (!beginOperation('compress', 'Comprimindo…')) return;
@@ -178,6 +246,7 @@ export function useDocumentExport({
     setNumberingStart,
     splitPdf,
     splitPdfEvery,
+    splitByBlankSeparators,
     compressPdf,
     download,
   };

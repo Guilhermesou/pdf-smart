@@ -245,7 +245,7 @@ export function EditorView({ model }: { model: EditorViewModel }) {
       <input
         ref={input}
         type="file"
-        accept=".pdf,application/pdf"
+        accept=".pdf,application/pdf,image/png,image/jpeg,image/webp,image/bmp,.png,.jpg,.jpeg,.webp,.bmp"
         multiple
         hidden
         onChange={(e) => void openFiles(e.target.files)}
@@ -335,13 +335,16 @@ export function EditorView({ model }: { model: EditorViewModel }) {
                 </div>
               )}
               <h2>Seu próximo PDF começa aqui</h2>
-              <p>Arraste um ou mais PDFs para organizar suas páginas.</p>
+              <p>
+                Arraste PDFs ou imagens (PNG, JPG, WEBP) para organizar e
+                juntar.
+              </p>
               <button
                 className="primary"
                 disabled={!!busy}
                 onClick={() => input.current?.click()}
               >
-                <Upload size={17} /> Abrir arquivos PDF
+                <Upload size={17} /> Abrir arquivos PDF ou imagens
               </button>
               <small>
                 Processamento local · Sem cadastro · Sem enviar seus PDFs

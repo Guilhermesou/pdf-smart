@@ -10,6 +10,7 @@ import { useDocumentExport } from './use-document-export';
 import { useEditorKeyboard } from './use-editor-keyboard';
 import { movePage, rotatePages, duplicatePages } from '../model/document';
 import { paintBeforeWork } from '@/lib/pdf/runtime';
+import { isImageFile, convertImageToPdf } from '@/lib/pdf/image-import';
 import type { EditorServices } from '../model/editor-services';
 import type { PageItem } from '@/lib/pdf/types';
 
@@ -160,9 +161,18 @@ export function useEditorViewModel(services: EditorServices) {
     const errors: string[] = [];
     try {
       await paintBeforeWork();
-      for (const file of Array.from(files)) {
-        if (!file.name.toLowerCase().endsWith('.pdf')) {
-          errors.push(`${file.name}: selecione um PDF.`);
+      for (const rawFile of Array.from(files)) {
+        let file = rawFile;
+        if (isImageFile(file)) {
+          try {
+            setBusy(`Convertendo ${file.name}…`);
+            file = await convertImageToPdf(file);
+          } catch {
+            errors.push(`${file.name}: falha ao converter imagem para PDF.`);
+            continue;
+          }
+        } else if (!file.name.toLowerCase().endsWith('.pdf')) {
+          errors.push(`${file.name}: selecione um PDF ou imagem.`);
           continue;
         }
         try {
@@ -180,7 +190,7 @@ export function useEditorViewModel(services: EditorServices) {
       setPages([...pages, ...added]);
       if (added.length) {
         if (!pages.length)
-          setName(Array.from(files)[0].name.replace(/\.pdf$/i, ''));
+          setName(Array.from(files)[0].name.replace(/\.[^.]+$/i, ''));
         documentModel.commit([...pages, ...added], pages);
         setFilter(false);
       }
@@ -381,6 +391,7 @@ export function useEditorViewModel(services: EditorServices) {
     selectParity: selection.selectParity,
     splitPdf: exportActions.splitPdf,
     splitPdfEvery: exportActions.splitPdfEvery,
+    splitByBlankSeparators: exportActions.splitByBlankSeparators,
     compressPdf: exportActions.compressPdf,
     applyRange: selection.applyRange,
     undo,
