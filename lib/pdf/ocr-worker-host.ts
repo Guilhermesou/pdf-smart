@@ -29,7 +29,8 @@ export function createOcrWorkerHost(
         if (data.type === 'ocr-start') {
           await worker?.terminate();
           worker = undefined;
-          worker = await create('eng', 1, {
+          const languages = data.assets.languages ?? 'por+eng';
+          worker = await create(languages, 1, {
             ...data.assets,
             workerBlobURL: false,
             errorHandler: () => {},

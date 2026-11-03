@@ -21,7 +21,7 @@ export function createBrowserEditorServices(): EditorServices {
       ),
     saveBytes: (bytes, filename) => {
       session.assertOpen();
-      saveBytes(bytes, filename);
+      return saveBytes(bytes, filename);
     },
   };
 }

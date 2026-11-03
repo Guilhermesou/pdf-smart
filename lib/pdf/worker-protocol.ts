@@ -19,6 +19,7 @@ export type OcrAssets = {
   workerPath: string;
   corePath: string;
   langPath: string;
+  languages?: string;
 };
 export type OcrRequest =
   | { type: 'ocr-start'; assets: OcrAssets }

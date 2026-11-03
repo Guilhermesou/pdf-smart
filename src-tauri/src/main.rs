@@ -91,10 +91,26 @@ async fn native_ocr(
         .await
         .map_err(|e| e.to_string())?
 }
+#[tauri::command]
+async fn save_pdf(filename: String, bytes: Vec<u8>) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dialog = rfd::FileDialog::new()
+            .set_file_name(&filename)
+            .add_filter("Documento PDF (*.pdf)", &["pdf"]);
+        if let Some(path) = dialog.save_file() {
+            std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+            Ok(Some(path.to_string_lossy().to_string()))
+        } else {
+            Ok(None)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 fn main() {
     tauri::Builder::default()
         .manage(OcrState::default())
-        .invoke_handler(tauri::generate_handler![native_ocr])
+        .invoke_handler(tauri::generate_handler![native_ocr, save_pdf])
         .run(tauri::generate_context!())
         .expect("Falha ao iniciar PDF Smart");
 }

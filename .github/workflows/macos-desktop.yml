@@ -1,0 +1,34 @@
+name: Build macOS desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Prepare native OCR and build desktop bundle
+        run: npm run desktop:prepare
+      - name: Build macOS app bundle
+        run: npm run desktop:build
+      - name: Compress macOS app
+        run: |
+          cd "src-tauri/target/release/bundle/macos"
+          zip -r -y "PDF-Smart-macOS.zip" "PDF Smart.app"
+      - name: Upload macOS application
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Smart-macOS
+          path: src-tauri/target/release/bundle/macos/PDF-Smart-macOS.zip
+          if-no-files-found: error

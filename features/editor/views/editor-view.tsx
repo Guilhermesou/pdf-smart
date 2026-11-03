@@ -70,6 +70,9 @@ export function EditorView({ model }: { model: EditorViewModel }) {
     setRangeError,
     filter,
     setFilter,
+    searchTerm,
+    setSearchTerm,
+    searchInPages,
     dragOver,
     setDragOver,
     name,
@@ -393,6 +396,33 @@ export function EditorView({ model }: { model: EditorViewModel }) {
                         type="submit"
                       >
                         Selecionar
+                      </button>
+                    </div>
+                  </form>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      searchInPages(searchTerm);
+                    }}
+                  >
+                    <label className="sr-only" htmlFor="page-search">
+                      Buscar texto no documento
+                    </label>
+                    <div className="range-controls">
+                      <Input
+                        id="page-search"
+                        placeholder="Buscar texto…"
+                        value={searchTerm}
+                        disabled={!!busy || !pages.length}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                      <button
+                        className="secondary"
+                        disabled={!!busy || !pages.length || !searchTerm.trim()}
+                        type="submit"
+                        title="Buscar páginas com este texto"
+                      >
+                        Buscar
                       </button>
                     </div>
                   </form>

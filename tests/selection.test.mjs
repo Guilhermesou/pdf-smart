@@ -30,3 +30,19 @@ test('odd/even selection uses one-based current order and includes last odd page
   assert.deepEqual(paritySelection(0, 'odd'), []);
   assert.equal(paritySelection(600, 'even').length, 300);
 });
+
+test('text search filters matching pages case-insensitively', () => {
+  const pages = [
+    { id: '1', text: 'CONTRATO DE PRESTAÇÃO DE SERVIÇOS' },
+    { id: '2', text: 'Página em branco' },
+    { id: '3', text: 'Assinatura das partes no contrato' },
+  ];
+  const query = 'contrato';
+  const matches = pages.filter((p) =>
+    p.text.toLowerCase().includes(query.toLowerCase()),
+  );
+  assert.deepEqual(
+    matches.map((p) => p.id),
+    ['1', '3'],
+  );
+});

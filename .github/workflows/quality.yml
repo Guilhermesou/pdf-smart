@@ -22,3 +22,15 @@ jobs:
       - run: npm test
       - name: Build desktop frontend
         run: npx vite build --config vite.desktop.config.ts
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux system dependencies for Tauri and RFD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml

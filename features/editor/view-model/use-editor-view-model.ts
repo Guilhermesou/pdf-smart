@@ -4,15 +4,14 @@ import { usePagePreview } from '@/hooks/use-page-preview';
 import { useDocumentBridge } from './use-document-bridge';
 import { useDocumentModel } from './use-document-model';
 import { useEditorOperation } from './use-editor-operation';
+import { useDocumentAnalysis } from './use-document-analysis';
+import { usePageSelection } from './use-page-selection';
+import { useDocumentExport } from './use-document-export';
+import { useEditorKeyboard } from './use-editor-keyboard';
 import { movePage, rotatePages, duplicatePages } from '../model/document';
-import { paintBeforeWork, exportMessage } from '@/lib/pdf/runtime';
-import {
-  paritySelection,
-  parsePageSelection,
-  formatPageSelection,
-} from '@/lib/pdf/selection';
+import { paintBeforeWork } from '@/lib/pdf/runtime';
 import type { EditorServices } from '../model/editor-services';
-import type { PageItem, AnalysisProgress } from '@/lib/pdf/types';
+import type { PageItem } from '@/lib/pdf/types';
 
 export function useEditorViewModel(services: EditorServices) {
   const {
@@ -24,9 +23,11 @@ export function useEditorViewModel(services: EditorServices) {
     saveBytes,
     releaseUnusedResources,
   } = services;
+
   const documentModel = useDocumentModel();
   const { pages, selected, history, future, setPages, setSelected } =
     documentModel;
+
   const {
     operation,
     busy,
@@ -38,25 +39,12 @@ export function useEditorViewModel(services: EditorServices) {
     requestCancel,
     resetCancel,
   } = useEditorOperation();
-  const [analysisProgress, setAnalysisProgress] =
-      useState<AnalysisProgress | null>(null),
-    [message, setMessage] = useState(''),
-    [ocr, setOcr] = useState(true),
-    [sensitive, setSensitive] = useState(false),
-    [ignoreBorders, setIgnoreBorders] = useState(true),
-    [scanMode, setScanMode] = useState(true),
-    [ocrEngine, setOcrEngine] = useState<'auto' | 'tesseract'>('auto'),
-    [bypassCache, setBypassCache] = useState(false),
-    [settingsOpen, setSettingsOpen] = useState(false),
-    [clearOpen, setClearOpen] = useState(false),
-    [toolDialog, setToolDialog] = useState<'split' | 'compress' | null>(null),
-    [splitEvery, setSplitEvery] = useState(''),
-    [rasterAccepted, setRasterAccepted] = useState(false),
-    [range, setRange] = useState(''),
-    [rangeError, setRangeError] = useState(''),
-    [filter, setFilter] = useState(false),
-    [dragOver, setDragOver] = useState(false),
-    [name, setName] = useState('documento');
+
+  const [message, setMessage] = useState('');
+  const [clearOpen, setClearOpen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [name, setName] = useState('documento');
+
   const {
     previewPageId,
     preview,
@@ -66,140 +54,93 @@ export function useEditorViewModel(services: EditorServices) {
     inspect,
     closePreview,
   } = usePagePreview(setMessage, services.renderPage, services.signal);
-  const input = useRef<HTMLInputElement>(null),
-    drag = useRef<string | null>(null);
+
+  const input = useRef<HTMLInputElement>(null);
+  const drag = useRef<string | null>(null);
+
   useEffect(() => {
     if (!operation) releaseUnusedResources(pages, [...history, ...future]);
   }, [pages, history, future, operation, releaseUnusedResources]);
+
   const pageIndices = useMemo(
     () => new Map(pages.map((p, i) => [p.id, i])),
     [pages],
   );
+
   const candidates = pages.filter(
-      (p) => p.verdict && p.verdict.kind !== 'content',
-    ),
-    shown = filter ? candidates : pages;
+    (p) => p.verdict && p.verdict.kind !== 'content',
+  );
+
+  const analysis = useDocumentAnalysis({
+    pages,
+    setPages,
+    analyze,
+    locked,
+    cancel,
+    beginOperation,
+    finishOperation,
+    setBusy,
+    setMessage,
+  });
+
+  const { setAnalysisProgress } = analysis;
+
+  const selection = usePageSelection({
+    pages,
+    selected,
+    setSelected,
+    candidates,
+    shown: pages, // updated dynamically below
+    setMessage,
+  });
+
+  const { filter, setFilter, setRange, setRangeError } = selection;
+  const shown = filter ? candidates : pages;
+
+  const exportActions = useDocumentExport({
+    pages,
+    selected,
+    name,
+    exportPdf,
+    exportPdfParts,
+    compressPages,
+    saveBytes,
+    locked,
+    cancel,
+    beginOperation,
+    finishOperation,
+    setBusy,
+    setMessage,
+    setAnalysisProgress,
+  });
+
+  const { setToolDialog, setRasterAccepted } = exportActions;
+
   const analyzedCount = pages.filter((p) => p.verdict).length;
   const selectedNumbers = pages.flatMap((p, i) =>
     selected.has(p.id) ? [i + 1] : [],
   );
-  const selectParity = (parity: 'odd' | 'even') => {
-    const nums = paritySelection(pages.length, parity);
-    setSelected(new Set(nums.map((n) => pages[n - 1].id)));
-    setRangeError('');
-    setMessage(
-      `${nums.length} páginas ${parity === 'odd' ? 'ímpares' : 'pares'} selecionadas na ordem atual.`,
-    );
-  };
-  async function splitPdf(rest: boolean) {
-    if (locked.current) return;
-    if (!beginOperation('export', 'Separando páginas…')) return;
-    setAnalysisProgress(null);
-    try {
-      await paintBeforeWork();
-      const subset = pages.filter((p) =>
-        rest ? !selected.has(p.id) : selected.has(p.id),
-      );
-      if (!subset.length)
-        throw new Error('Selecione um grupo de páginas primeiro.');
-      saveBytes(
-        await exportPdf(subset, (p) => setBusy(exportMessage(p))),
-        `${name}-${rest ? 'restantes' : 'selecionadas'}.pdf`,
-      );
-      setMessage(`${subset.length} páginas exportadas em arquivo separado.`);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      finishOperation();
-    }
-  }
-  async function splitPdfEvery() {
-    const every = Number(splitEvery);
-    if (!Number.isSafeInteger(every) || every < 1) {
-      setMessage('Informe uma quantidade de páginas válida para cada parte.');
-      return;
-    }
-    if (locked.current) return;
-    if (!beginOperation('export', 'Separando páginas…')) return;
-    setAnalysisProgress(null);
-    try {
-      await paintBeforeWork();
-      const partCount = Math.ceil(pages.length / every);
-      await exportPdfParts(
-        pages,
-        every,
-        (bytes, part) =>
-          saveBytes(
-            bytes,
-            `${name}-parte-${String(part).padStart(3, '0')}.pdf`,
-          ),
-        (progress, part) =>
-          setBusy(`Parte ${part}/${partCount} · ${exportMessage(progress)}`),
-      );
-      setMessage(
-        `${pages.length} páginas divididas em ${partCount} ${partCount === 1 ? 'arquivo' : 'arquivos'}.`,
-      );
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      finishOperation();
-    }
-  }
-  async function compressPdf() {
-    if (locked.current || !rasterAccepted) return;
-    if (!beginOperation('compress', 'Comprimindo…')) return;
-    setAnalysisProgress(null);
-    try {
-      await paintBeforeWork();
-      const bytes = await compressPages(pages, setBusy, () => cancel.current);
-      const baseline = await exportPdf(pages, (p) => setBusy(exportMessage(p)));
-      if (cancel.current) throw new Error('Compressão cancelada.');
-      const smaller = bytes.length < baseline.length;
-      saveBytes(
-        smaller ? bytes : baseline,
-        `${name}-${smaller ? 'comprimido' : 'otimizado'}.pdf`,
-      );
-      setMessage(
-        smaller
-          ? `PDF reduzido em ${Math.round((1 - bytes.length / baseline.length) * 100)}% (${(baseline.length / 1048576).toFixed(1)} → ${(bytes.length / 1048576).toFixed(1)} MB).`
-          : 'A compressão não reduziu o tamanho. Foi exportada a versão que preserva o conteúdo.',
-      );
-      setToolDialog(null);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      finishOperation();
-    }
-  }
-  const applyRange = () => {
-    try {
-      const positions = parsePageSelection(range, pages.length);
-      setSelected(new Set(positions.map((n) => pages[n - 1].id)));
-      setRangeError('');
-      setMessage(
-        `${positions.length} páginas selecionadas: ${formatPageSelection(positions)}.`,
-      );
-    } catch (e) {
-      setRangeError(e instanceof Error ? e.message : 'Seleção inválida.');
-    }
-  };
+
   const update = (next: PageItem[], previous?: PageItem[]) => {
     if (locked.current) return;
     setAnalysisProgress(null);
     documentModel.commit(next, previous);
   };
+
   function undo() {
     if (locked.current) return;
     documentModel.undo();
     setAnalysisProgress(null);
     setFilter(false);
   }
+
   function redo() {
     if (locked.current) return;
     documentModel.redo();
     setAnalysisProgress(null);
     setFilter(false);
   }
+
   const toggle = (id: string) =>
     setSelected((s) => {
       const n = new Set(s);
@@ -207,6 +148,7 @@ export function useEditorViewModel(services: EditorServices) {
       else n.add(id);
       return n;
     });
+
   async function openFiles(files: FileList | File[] | null) {
     if (!files?.length || locked.current) return;
     if (!beginOperation('import', 'Abrindo documentos…')) return;
@@ -250,6 +192,7 @@ export function useEditorViewModel(services: EditorServices) {
       if (input.current) input.current.value = '';
     }
   }
+
   function addBlank() {
     update([
       ...pages,
@@ -265,6 +208,7 @@ export function useEditorViewModel(services: EditorServices) {
     ]);
     setFilter(false);
   }
+
   function clearDocument() {
     if (locked.current || previewBusy) return;
     closePreview();
@@ -283,6 +227,7 @@ export function useEditorViewModel(services: EditorServices) {
     if (input.current) input.current.value = '';
     setMessage('Documento limpo. Abra outro PDF para continuar.');
   }
+
   function remove() {
     const remaining = pages.filter((p) => !selected.has(p.id));
     update(remaining);
@@ -294,11 +239,13 @@ export function useEditorViewModel(services: EditorServices) {
     setMessage(`${selected.size} páginas removidas. Você pode desfazer.`);
     setSelected(new Set());
   }
+
   function move(id: string, offset: number) {
     update(
       movePage(pages, id, pages.findIndex((page) => page.id === id) + offset),
     );
   }
+
   function drop(id: string) {
     if (drag.current)
       update(
@@ -310,95 +257,20 @@ export function useEditorViewModel(services: EditorServices) {
       );
     drag.current = null;
   }
+
   const rotateSelected = () => update(rotatePages(pages, selected));
   const duplicateSelected = () =>
     update(duplicatePages(pages, selected, () => crypto.randomUUID()));
   const reversePages = () => update([...pages].reverse());
-  const invertSelection = () =>
-    setSelected(
-      new Set(
-        pages.filter((page) => !selected.has(page.id)).map((page) => page.id),
-      ),
-    );
-  function selectSuggestions() {
-    setSelected(new Set(candidates.map((page) => page.id)));
-    setFilter(true);
-  }
-  const selectVisible = (checked: boolean) =>
-    setSelected(checked ? new Set(shown.map((page) => page.id)) : new Set());
-  async function runAnalysis() {
-    if (locked.current || !pages.length) return;
-    if (!beginOperation('analysis', 'Preparando análise…')) return;
-    const inputPages = pages.map((p) => ({ ...p, verdict: undefined }));
-    setPages(inputPages);
-    setAnalysisProgress({
-      current: 1,
-      completed: 0,
-      total: pages.length,
-      page: inputPages[0],
-      stage: 'Preparando análise',
-    });
-    setMessage('');
-    try {
-      await paintBeforeWork();
-      const result = await analyze(
-        inputPages,
-        {
-          ocr,
-          tolerance: sensitive ? 0.012 : 0.003,
-          ignoreBorders,
-          scanMode,
-          ocrEngine,
-          bypassCache,
-        },
-        setBusy,
-        cancel,
-        (page, index) =>
-          setPages((current) => {
-            const next = [...current];
-            next[index] = page;
-            return next;
-          }),
-        setAnalysisProgress,
-      );
-      const indexed = new Map(result.pages.map((p) => [p.id, p]));
-      setPages(inputPages.map((p) => indexed.get(p.id) || p));
-      setMessage(
-        cancel.current
-          ? 'Análise interrompida. Os resultados já obtidos foram mantidos.'
-          : result.failed
-            ? `Análise visual concluída. O OCR falhou em ${result.failed} páginas; revise-as manualmente.`
-            : `Análise concluída: ${result.pages.filter((p) => p.verdict?.kind !== 'content').length} sugestões em ${result.pages.length} páginas.`,
-      );
-    } catch (e) {
-      setMessage(
-        e instanceof Error ? e.message : 'Não foi possível concluir a análise.',
-      );
-    } finally {
-      finishOperation();
-    }
-  }
-  async function download() {
-    if (locked.current || !pages.length) return;
-    if (!beginOperation('export', 'Gerando seu PDF…')) return;
-    setAnalysisProgress(null);
-    try {
-      await paintBeforeWork();
-      const bytes = await exportPdf(pages, (p) => setBusy(exportMessage(p)));
-      saveBytes(bytes, `${name}-editado.pdf`);
-      setMessage('PDF exportado. O arquivo original permanece intacto.');
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : 'Falha na exportação.');
-    } finally {
-      finishOperation();
-    }
-  }
+
   const reviewPages = filter ? candidates : pages;
   const reviewIndex = reviewPages.findIndex((p) => p.id === previewPageId);
+
   function navigatePreview(offset: number) {
     const page = reviewPages[reviewIndex + offset];
     if (page) void inspect(page, pageIndices.get(page.id)!);
   }
+
   function reviewPage(exclude: boolean) {
     if (!previewPageId || locked.current) return;
     setSelected((current) => {
@@ -415,14 +287,30 @@ export function useEditorViewModel(services: EditorServices) {
       );
     }
   }
+
   useDocumentBridge(pages, busy);
+
+  useEditorKeyboard({
+    busy,
+    selectedSize: selected.size,
+    shownSize: shown.length,
+    undo,
+    redo,
+    remove,
+    rotateSelected,
+    selectVisible: selection.selectVisible,
+    clearSelection: () => setSelected(new Set()),
+    previewOpen: preview !== null,
+    closePreview,
+  });
+
   return {
     rotateSelected,
     duplicateSelected,
     reversePages,
-    invertSelection,
-    selectSuggestions,
-    selectVisible,
+    invertSelection: selection.invertSelection,
+    selectSuggestions: selection.selectSuggestions,
+    selectVisible: selection.selectVisible,
     pages,
     selected,
     setSelected,
@@ -430,38 +318,41 @@ export function useEditorViewModel(services: EditorServices) {
     future,
     operation,
     busy,
-    analysisProgress,
-    setAnalysisProgress,
+    analysisProgress: analysis.analysisProgress,
+    setAnalysisProgress: analysis.setAnalysisProgress,
     message,
     setMessage,
-    ocr,
-    setOcr,
-    sensitive,
-    setSensitive,
-    ignoreBorders,
-    setIgnoreBorders,
-    scanMode,
-    setScanMode,
-    ocrEngine,
-    setOcrEngine,
-    bypassCache,
-    setBypassCache,
-    settingsOpen,
-    setSettingsOpen,
+    ocr: analysis.ocr,
+    setOcr: analysis.setOcr,
+    sensitive: analysis.sensitive,
+    setSensitive: analysis.setSensitive,
+    ignoreBorders: analysis.ignoreBorders,
+    setIgnoreBorders: analysis.setIgnoreBorders,
+    scanMode: analysis.scanMode,
+    setScanMode: analysis.setScanMode,
+    ocrEngine: analysis.ocrEngine,
+    setOcrEngine: analysis.setOcrEngine,
+    bypassCache: analysis.bypassCache,
+    setBypassCache: analysis.setBypassCache,
+    settingsOpen: analysis.settingsOpen,
+    setSettingsOpen: analysis.setSettingsOpen,
     clearOpen,
     setClearOpen,
-    toolDialog,
-    setToolDialog,
-    splitEvery,
-    setSplitEvery,
-    rasterAccepted,
-    setRasterAccepted,
-    range,
-    setRange,
-    rangeError,
-    setRangeError,
-    filter,
-    setFilter,
+    toolDialog: exportActions.toolDialog,
+    setToolDialog: exportActions.setToolDialog,
+    splitEvery: exportActions.splitEvery,
+    setSplitEvery: exportActions.setSplitEvery,
+    rasterAccepted: exportActions.rasterAccepted,
+    setRasterAccepted: exportActions.setRasterAccepted,
+    range: selection.range,
+    setRange: selection.setRange,
+    rangeError: selection.rangeError,
+    setRangeError: selection.setRangeError,
+    filter: selection.filter,
+    setFilter: selection.setFilter,
+    searchTerm: selection.searchTerm,
+    setSearchTerm: selection.setSearchTerm,
+    searchInPages: selection.searchInPages,
     dragOver,
     setDragOver,
     name,
@@ -480,11 +371,11 @@ export function useEditorViewModel(services: EditorServices) {
     shown,
     analyzedCount,
     selectedNumbers,
-    selectParity,
-    splitPdf,
-    splitPdfEvery,
-    compressPdf,
-    applyRange,
+    selectParity: selection.selectParity,
+    splitPdf: exportActions.splitPdf,
+    splitPdfEvery: exportActions.splitPdfEvery,
+    compressPdf: exportActions.compressPdf,
+    applyRange: selection.applyRange,
     undo,
     redo,
     toggle,
@@ -494,8 +385,8 @@ export function useEditorViewModel(services: EditorServices) {
     remove,
     move,
     drop,
-    runAnalysis,
-    download,
+    runAnalysis: analysis.runAnalysis,
+    download: exportActions.download,
     reviewPages,
     reviewIndex,
     navigatePreview,

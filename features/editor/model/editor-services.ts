@@ -52,5 +52,5 @@ export interface EditorServices {
     history: PageItem[][],
   ): void;
   disposeResources(this: void): Promise<void>;
-  saveBytes(this: void, bytes: Uint8Array, filename: string): void;
+  saveBytes(this: void, bytes: Uint8Array, filename: string): void | Promise<unknown>;
 }
