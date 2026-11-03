@@ -16,6 +16,7 @@ import type { PageItem } from '@/lib/pdf/types';
 export function useEditorViewModel(services: EditorServices) {
   const {
     importPdf,
+    renderThumbnail,
     analyze,
     exportPdf,
     exportPdfParts,
@@ -397,6 +398,7 @@ export function useEditorViewModel(services: EditorServices) {
     reviewIndex,
     navigatePreview,
     reviewPage,
+    renderThumbnail,
   };
 }
 

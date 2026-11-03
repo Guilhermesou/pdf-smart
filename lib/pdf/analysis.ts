@@ -4,7 +4,13 @@ import type { PageItem, AnalysisProgress, AnalysisOptions } from './types';
 import { yieldTask } from './runtime';
 import { AnalysisCache } from './analysis-cache';
 import { recognizeScanStamp, scanRegion, scanNeedsReview } from './scan';
-import { shouldRunOcr, withoutPageNumbers, type Verdict } from './detection';
+import {
+  shouldRunOcr,
+  withoutPageNumbers,
+  measureInk,
+  measureInteriorInk,
+  type Verdict,
+} from './detection';
 export async function analyzePages(
   pages: PageItem[],
   options: AnalysisOptions,
@@ -67,7 +73,23 @@ export async function analyzePages(
       onProgress(`Analisando página ${i + 1} de ${pages.length}`);
       detail('Inspeção visual', undefined, true);
       await yieldTask();
-      const ink = options.ignoreBorders ? (p.interiorInk ?? p.ink) : p.ink;
+      let pInk = p.ink;
+      let pInteriorInk = p.interiorInk;
+      if (p.source && (pInk < 0 || pInk === undefined)) {
+        const visual = await timedRender({ ...p, rotation: 0 }, 220);
+        try {
+          const pixels = visual
+            .getContext('2d', { willReadFrequently: true })!
+            .getImageData(0, 0, visual.width, visual.height).data;
+          pInk = measureInk(pixels);
+          pInteriorInk = measureInteriorInk(pixels, visual.width, visual.height);
+          p.ink = pInk;
+          p.interiorInk = pInteriorInk;
+        } finally {
+          visual.width = 0;
+        }
+      }
+      const ink = options.ignoreBorders ? (pInteriorInk ?? pInk) : pInk;
       let ocrStatus: Verdict['ocrStatus'] = options.ocr
         ? 'not-needed'
         : 'disabled';

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   FileStack,
   Settings2,
@@ -45,6 +45,69 @@ import { AnalysisProgressPanel } from './analysis-progress-panel';
 import { AnalysisSettings } from './analysis-settings';
 import { ExportDialog } from './export-dialog';
 import { PagePreviewDialog } from './page-preview-dialog';
+import type { PageItem } from '@/lib/pdf/types';
+
+function PageCardThumbnail({
+  page,
+  pageIndex,
+  renderThumbnail,
+  onThumbnailLoaded,
+}: {
+  page: PageItem;
+  pageIndex: number;
+  renderThumbnail: (
+    page: PageItem,
+  ) => Promise<{ thumb: string; ink: number; interiorInk?: number }>;
+  onThumbnailLoaded: (
+    id: string,
+    thumb: string,
+    ink: number,
+    interiorInk?: number,
+  ) => void;
+}) {
+  const [thumb, setThumb] = useState(page.thumb);
+  const currentThumb = page.thumb || thumb;
+  const isLoading = !currentThumb && !!page.source;
+
+  useEffect(() => {
+    if (currentThumb || !page.source) return;
+
+    let active = true;
+
+    void renderThumbnail(page)
+      .then((res) => {
+        if (!active) return;
+        setThumb(res.thumb);
+        onThumbnailLoaded(page.id, res.thumb, res.ink, res.interiorInk);
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [currentThumb, page, renderThumbnail, onThumbnailLoaded]);
+
+  if (currentThumb) {
+    return (
+      <img
+        src={currentThumb}
+        alt={`Miniatura da página ${pageIndex + 1}`}
+        loading="lazy"
+        style={{
+          transform: `rotate(${page.rotation}deg)`,
+          maxWidth: page.rotation % 180 ? '70%' : undefined,
+        }}
+      />
+    );
+  }
+
+  return (
+    <span className={`blank-paper ${isLoading ? 'loading-thumb' : ''}`}>
+      {isLoading && <span className="thumb-spinner" />}
+    </span>
+  );
+}
+
 export function EditorView({ model }: { model: EditorViewModel }) {
   const {
     rotateSelected,
@@ -102,7 +165,20 @@ export function EditorView({ model }: { model: EditorViewModel }) {
     drop,
     runAnalysis,
     download,
+    renderThumbnail,
   } = model;
+
+  const onThumbnailLoaded = useCallback(
+    (id: string, thumb: string, ink: number, interiorInk?: number) => {
+      const page = pages.find((p) => p.id === id);
+      if (page) {
+        page.thumb = thumb;
+        page.ink = ink;
+        if (interiorInk !== undefined) page.interiorInk = interiorInk;
+      }
+    },
+    [pages],
+  );
 
   const [isDark, setIsDark] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -599,19 +675,12 @@ export function EditorView({ model }: { model: EditorViewModel }) {
                         disabled={operation === 'import'}
                         onClick={() => void inspect(p, i)}
                       >
-                        {p.thumb ? (
-                          <img
-                            src={p.thumb}
-                            alt={`Miniatura da página ${i + 1}`}
-                            loading="lazy"
-                            style={{
-                              transform: `rotate(${p.rotation}deg)`,
-                              maxWidth: p.rotation % 180 ? '70%' : undefined,
-                            }}
-                          />
-                        ) : (
-                          <span className="blank-paper" />
-                        )}
+                        <PageCardThumbnail
+                          page={p}
+                          pageIndex={i}
+                          renderThumbnail={renderThumbnail}
+                          onThumbnailLoaded={onThumbnailLoaded}
+                        />
                         <span className="zoom-hint">
                           <Eye size={18} /> Ampliar
                         </span>

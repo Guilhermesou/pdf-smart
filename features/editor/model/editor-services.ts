@@ -48,6 +48,10 @@ export interface EditorServices {
     page: PageItem,
     width?: number,
   ): Promise<HTMLCanvasElement>;
+  renderThumbnail(
+    this: void,
+    page: PageItem,
+  ): Promise<{ thumb: string; ink: number; interiorInk?: number }>;
   releaseUnusedResources(
     this: void,
     pages: PageItem[],

@@ -191,3 +191,38 @@ test('bypass cache forces fresh visual measurement and reports rendering separat
   assert.equal(last.timings.ocrMs, 0);
   assert.equal(last.ocrDiagnostics, undefined);
 });
+
+test('unmeasured page (ink < 0) has ink measured on-demand during analysis', async () => {
+  const unmeasured = {
+    id: 'lazy-1',
+    source: 'fixture',
+    index: 0,
+    rotation: 0,
+    text: '',
+    thumb: '',
+    ink: -1,
+  };
+  const { createCanvas } = await import('@napi-rs/canvas');
+  let renderedWidth = 0;
+  const mockRender = async (p, w) => {
+    renderedWidth = w;
+    const canvas = createCanvas(100, 100);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, 100, 100);
+    return canvas;
+  };
+  const result = await analyzePages(
+    [unmeasured],
+    { ocr: false, scanMode: false, tolerance: 0.0015 },
+    () => {},
+    { current: false },
+    undefined,
+    undefined,
+    mockRender,
+    new AnalysisCache(),
+  );
+  assert.equal(renderedWidth, 220);
+  assert.ok(result.pages[0].ink >= 0);
+  assert.equal(result.pages[0].verdict.kind, 'blank');
+});
