@@ -131,3 +131,10 @@ A versão 0.1.8 traz recursos de produtividade jurídica e corporativa:
 - **Atalhos de Teclado:** Controle completo de fluxo via teclado (`Cmd/Ctrl+A`, `Delete`/`Backspace`, `R` para rotacionar, `Escape`, `Cmd/Ctrl+Z`).
 - **OCR Bilíngue Offline:** Empacotamento do modelo em português (`por.traineddata.gz`) junto ao inglês (`por+eng`), ampliando a precisão em termos e acentos brasileiros.
 - **Tema Escuro / Claro (Dark Mode):** Alternador no topo e sincronização automática com preferências do sistema operacional.
+
+### Otimização de Performance e Exportação Direta 0.1.9
+
+A versão 0.1.9 traz correções críticas de performance e economia de memória na finalização e exportação de PDFs:
+- **IPC Binário Direto (Zero-Copy):** Salvar arquivos no desktop agora utiliza streaming binário via protocolo nativo do Tauri v2 (`application/octet-stream`), eliminando a serialização de milhões de números em JSON e evitando picos de mais de 1 GB de RAM no WebKit.
+- **Finalização e Carga Aceleradas no Web Worker:** Exportação com `useObjectStreams: false` e `objectsPerTick: Infinity`, além de leitura de alta performance (`parseSpeed: Infinity`), eliminando atrasos por ticks do event loop e consumo excessivo de memória durante a montagem do PDF.
+- **Transição Transparente de Estados:** Atualização em tempo real do status na interface para indicar claramente quando o PDF está sendo montado, finalizado e quando o diálogo de salvamento do sistema está ativo.
