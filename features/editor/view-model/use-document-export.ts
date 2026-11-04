@@ -60,8 +60,10 @@ export function useDocumentExport({
       );
       if (!subset.length)
         throw new Error('Selecione um grupo de páginas primeiro.');
+      const bytes = await exportPdf(subset, (p) => setBusy(exportMessage(p)));
+      setBusy('Salvando PDF…');
       const saved = await saveBytes(
-        await exportPdf(subset, (p) => setBusy(exportMessage(p))),
+        bytes,
         `${name}-${rest ? 'restantes' : 'selecionadas'}.pdf`,
       );
       setMessage(
@@ -160,6 +162,7 @@ export function useDocumentExport({
         const partNum = i + 1;
         setBusy(`Exportando documento ${partNum}/${parts.length}…`);
         const bytes = await exportPdf(parts[i]);
+        setBusy(`Salvando documento ${partNum}/${parts.length}…`);
         await saveBytes(
           bytes,
           `${name}-documento-${String(partNum).padStart(2, '0')}.pdf`,
@@ -187,6 +190,7 @@ export function useDocumentExport({
       const baseline = await exportPdf(pages, (p) => setBusy(exportMessage(p)));
       if (cancel.current) throw new Error('Compressão cancelada.');
       const smaller = bytes.length < baseline.length;
+      setBusy('Salvando PDF…');
       await saveBytes(
         smaller ? bytes : baseline,
         `${name}-${smaller ? 'comprimido' : 'otimizado'}.pdf`,
@@ -234,6 +238,7 @@ export function useDocumentExport({
         watermark,
         normalizeA4Enabled,
       );
+      setBusy('Salvando PDF…');
       const saved = await saveBytes(bytes, `${name}-editado.pdf`);
       setMessage(
         typeof saved === 'string'

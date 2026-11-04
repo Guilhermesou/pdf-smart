@@ -7,9 +7,10 @@ export async function saveBytes(
 ): Promise<string | null> {
   if (isTauri()) {
     try {
-      const savedPath = await invoke<string | null>('save_pdf', {
-        filename,
-        bytes: Array.from(bytes),
+      const savedPath = await invoke<string | null>('save_pdf', bytes, {
+        headers: {
+          'x-filename': encodeURIComponent(filename),
+        },
       });
       return savedPath;
     } catch {

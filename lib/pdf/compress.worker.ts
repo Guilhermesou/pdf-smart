@@ -32,7 +32,10 @@ scope.onmessage = async ({ data }) => {
     } else if (data.type === 'save') {
       if (!output?.getPageCount())
         throw new Error('Nenhuma página para comprimir.');
-      const bytes = await output.save();
+      const bytes = await output.save({
+        useObjectStreams: false,
+        objectsPerTick: Infinity,
+      });
       output = undefined;
       scope.postMessage({ type: 'result', bytes }, [
         bytes.buffer as ArrayBuffer,

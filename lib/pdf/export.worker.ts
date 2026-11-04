@@ -44,7 +44,7 @@ scope.onmessage = async (e) => {
         previous ??
         (await PDFDocument.load(
           source instanceof Uint8Array ? source : await source.arrayBuffer(),
-          { ignoreEncryption: true },
+          { ignoreEncryption: true, parseSpeed: Infinity },
         ));
       if (reuseSource) retained = { id, doc };
       // One copier per source preserves shared fonts/images instead of duplicating them per page.
@@ -163,7 +163,12 @@ scope.onmessage = async (e) => {
         total: pages.length,
       },
     });
-    const bytes = await output.save();
+    const bytes = await output.save({
+      useObjectStreams: false,
+      objectsPerTick: Infinity,
+    });
+    ordered.length = 0;
+    groups.clear();
     scope.postMessage({ type: 'result', bytes }, [bytes.buffer as ArrayBuffer]);
   } catch (e) {
     retained = undefined;

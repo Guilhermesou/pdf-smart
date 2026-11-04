@@ -92,7 +92,29 @@ async fn native_ocr(
         .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-async fn save_pdf(filename: String, bytes: Vec<u8>) -> Result<Option<String>, String> {
+async fn save_pdf(request: tauri::ipc::Request<'_>) -> Result<Option<String>, String> {
+    let filename = request
+        .headers()
+        .get("x-filename")
+        .and_then(|h| h.to_str().ok())
+        .map(|s| {
+            percent_encoding::percent_decode_str(s)
+                .decode_utf8_lossy()
+                .to_string()
+        })
+        .unwrap_or_else(|| "documento.pdf".to_string());
+
+    let bytes: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(raw) => raw.clone(),
+        tauri::ipc::InvokeBody::Json(json) => {
+            if let Some(arr) = json.get("bytes").and_then(|v| v.as_array()) {
+                arr.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect()
+            } else {
+                return Err("Conteúdo do arquivo ausente.".into());
+            }
+        }
+    };
+
     tauri::async_runtime::spawn_blocking(move || {
         let dialog = rfd::FileDialog::new()
             .set_file_name(&filename)
