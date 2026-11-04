@@ -53,6 +53,7 @@ body {
 }
 
 :root {
+  color-scheme: light;
   --background: #f6f7f9;
   --foreground: #20242b;
   --card: #fff;
@@ -75,6 +76,7 @@ body {
 }
 
 .dark {
+  color-scheme: dark;
   --background: #111315;
   --foreground: #eceff1;
   --card: #181c20;
@@ -116,36 +118,400 @@ body {
   gap: 16px;
 }
 
-.dark .document-bar,
-.dark .workspace-tools,
-.dark .page-card,
-.dark .secondary,
-.dark .empty-editor,
-.dark .tool-dialog {
-  background: var(--card);
-  border-color: var(--border);
+/* ==========================================================================
+   Comprehensive Dark Mode Overrides
+   ========================================================================== */
+
+/* Typography & General */
+.dark p {
+  color: #9aa5b1;
+}
+.dark h1,
+.dark h2,
+.dark h3 {
   color: var(--foreground);
 }
-.dark .secondary {
-  color: var(--foreground);
+.dark .privacy {
+  color: #8b9a91;
 }
-.dark .secondary:hover {
-  background: var(--muted);
-}
-.dark .page-card {
-  background: var(--card);
-}
-.dark .workspace-tools button,
-.dark .workspace-tools .tool-current {
-  background: var(--card);
-  color: var(--foreground);
+.dark footer {
+  color: #75818d;
 }
 .dark .app-version {
   background: #253029;
   color: #9ac2aa;
 }
+.dark .document-foot {
+  color: #7d8b81;
+}
+
+/* Document Bar & Toolbar */
+.dark .document-bar {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
 .dark .document-name > svg {
   color: #9ac2aa;
+}
+.dark .document-name small {
+  color: #727e8a;
+}
+.dark .toolbar {
+  background: var(--card);
+  border-color: var(--border);
+}
+.dark .check-label {
+  color: #8d98a5;
+}
+.dark .tool-actions button {
+  color: #8d98a5;
+}
+.dark .tool-actions button:hover:not(:disabled) {
+  background: #20262c;
+  color: #eceff1;
+}
+.dark .separator {
+  background: var(--border);
+}
+
+/* Secondary & Text Buttons */
+.dark .secondary {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .secondary:hover:not(:disabled) {
+  background: var(--muted);
+}
+.dark .text-button {
+  color: #72cf93;
+}
+.dark .text-button:hover:not(:disabled) {
+  color: #93e2ad;
+}
+
+/* Workspace Tools Bar */
+.dark .workspace-tools {
+  background: var(--card);
+  border-color: var(--border);
+}
+.dark .workspace-tools button {
+  background: transparent;
+  color: #8d98a5;
+}
+.dark .workspace-tools button:hover:not(:disabled) {
+  background: #22292f;
+  color: #eceff1;
+}
+.dark .workspace-tools .tool-current {
+  background: #1c2b21;
+  color: #72cf93;
+  font-weight: 600;
+  border: 1px solid #284431;
+}
+
+/* Selection Panel & Compact Selection */
+.dark .selection-panel {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .selection-readout {
+  color: #72cf93;
+  border-top-color: var(--border);
+}
+.dark .quick-selection {
+  border-bottom-color: var(--border);
+}
+.dark .quick-selection button:not(.secondary) {
+  color: #8d98a5;
+  background: transparent;
+}
+.dark .quick-selection button:not(.secondary):hover:not(:disabled) {
+  color: var(--foreground);
+}
+.dark .selection-panel .range-error {
+  color: #f87171;
+}
+
+/* Analysis Overview Banner */
+.dark .analysis-overview {
+  background: #152219;
+  border-color: #233b2a;
+  color: var(--foreground);
+}
+.dark .analysis-overview > svg {
+  color: #5bb380;
+}
+.dark .analysis-overview strong {
+  color: var(--foreground);
+}
+.dark .analysis-overview p {
+  color: #8fa093;
+}
+
+/* Live Analysis Progress Panel */
+.dark .analysis-live {
+  background: #152219;
+  border-color: #233b2a;
+  color: var(--foreground);
+}
+.dark .live-thumb {
+  background: #1c221e;
+  border-color: #2a3d31;
+  color: #8da294;
+}
+.dark .live-heading strong {
+  color: var(--foreground);
+}
+.dark .live-heading span {
+  color: #8da294;
+}
+.dark .live-detail p {
+  color: #8da294;
+}
+.dark .live-result {
+  color: #72cf93;
+}
+.dark .analysis-live details {
+  color: #8da294;
+}
+
+/* Empty Editor Dropzone */
+.dark .empty-editor {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .upload-symbol {
+  background: #1c2b20;
+  color: #5bb380;
+}
+.dark .empty-editor small {
+  color: #727e8a;
+}
+.dark .drag-over {
+  outline-color: #459a64;
+  background: #16221a;
+}
+
+/* Grid & Page Cards */
+.dark .grid-caption span:first-child {
+  color: #c0c8cf;
+}
+.dark .grid-caption b {
+  color: #8d98a5;
+}
+.dark .grid-navigation {
+  color: #8d98a5;
+}
+.dark .page-views button {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .page-views button[aria-pressed='true'] {
+  background: #1c2e22;
+  color: #87cca1;
+  border-color: #38704c;
+  font-weight: 600;
+}
+.dark .page-card {
+  background: var(--card);
+  border-color: var(--border);
+}
+.dark .page-card:hover {
+  border-color: #3f604c;
+  box-shadow: 0 4px 15px #00000050;
+}
+.dark .page-card.selected {
+  border-color: #459a64;
+  box-shadow: 0 0 0 1px #459a64;
+}
+.dark .page-top {
+  color: #6b7785;
+}
+.dark .page-image {
+  background: #14171a;
+}
+.dark .blank-paper {
+  background: #1e242a;
+  border: 1px solid #2d3640;
+  box-shadow: 0 1px 5px #00000060;
+}
+.dark .page-bottom strong {
+  color: var(--foreground);
+}
+.dark .page-bottom > span {
+  color: #7b8795;
+}
+.dark .move-controls button {
+  color: #8a96a3;
+}
+.dark .move-controls button:hover:not(:disabled) {
+  color: var(--foreground);
+}
+
+/* Verdict Badges */
+.dark .verdict {
+  background: #1c2228;
+  color: #8a96a3;
+}
+.dark .verdict.blank,
+.dark .verdict.stamp {
+  background: #17281e;
+  color: #72cf93;
+}
+.dark .verdict.sparse {
+  background: #2a2212;
+  color: #f5b945;
+}
+.dark .verdict.bleed {
+  background: #1b2138;
+  color: #8da4f7;
+}
+
+/* Status Notifications */
+.dark .status {
+  background: #16221a;
+  border-color: #243a2c;
+  color: #87cca1;
+}
+
+/* Empty State / No Results */
+.dark .no-results {
+  color: #72cf93;
+}
+.dark .no-results h3 {
+  color: var(--foreground);
+}
+.dark .no-results p {
+  color: #8d98a5;
+}
+
+/* Preview Modal & Diagnostics */
+.dark .preview-dialog {
+  background: var(--popover);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .preview-scroll {
+  background: #101316;
+}
+.dark .preview-diagnostics {
+  background: #17221a;
+  border: 1px solid #243a2c;
+  color: var(--foreground);
+}
+.dark .preview-diagnostics p {
+  color: #8da092;
+}
+.dark .preview-diagnostics details {
+  color: #8da092;
+}
+.dark .preview-diagnostics pre {
+  background: #101512;
+  color: #eceff1;
+  border: 1px solid #233327;
+}
+
+/* Settings Sheet & Native Form Controls */
+.dark .settings-sheet {
+  background: var(--popover);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .settings-sheet select,
+.dark .settings-sheet input[type='text'],
+.dark .settings-sheet input[type='number'],
+.dark .split-every input {
+  background: #1f252c;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.dark .settings-sheet select:focus,
+.dark .settings-sheet input:focus,
+.dark .split-every input:focus {
+  outline: 2px solid var(--ring);
+  border-color: transparent;
+}
+.dark .settings-sheet .setting strong {
+  color: var(--foreground);
+}
+.dark .settings-sheet .setting label {
+  color: var(--foreground);
+}
+.dark .settings-sheet .setting span {
+  color: var(--muted-foreground);
+}
+.dark .settings-sheet .ocr-note {
+  color: var(--muted-foreground);
+}
+.dark .local-note {
+  border-top-color: var(--border);
+  color: #8d98a5;
+}
+
+/* Tool Dialog (Split / Compress) */
+.dark .tool-dialog {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .tool-dialog p {
+  color: #8d98a5;
+}
+.dark .tool-dialog .tool-hint {
+  color: #707b88;
+}
+
+/* Inspector */
+.dark .inspector {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.dark .inspector h2 {
+  color: var(--foreground);
+}
+.dark .inspector p {
+  color: #8d98a5;
+}
+.dark .inspector .ocr-note,
+.dark .inspector .review-note {
+  color: #7d8b81;
+}
+.dark .feature-label {
+  color: #5bb380;
+}
+.dark .analysis-step strong {
+  color: var(--foreground);
+}
+.dark .analysis-step b {
+  color: #6d8475;
+}
+.dark .analysis-step span {
+  color: #8d98a5;
+}
+.dark .results {
+  border-top-color: var(--border);
+}
+.dark .results-heading span {
+  color: #8d98a5;
+}
+.dark .result-row {
+  color: #8d98a5;
+}
+.dark .result-row b {
+  color: #72cf93;
+}
+
+/* Dialog & Sheet Backdrops */
+.dark [data-slot='dialog-overlay'],
+.dark [data-slot='sheet-overlay'] {
+  background-color: rgba(0, 0, 0, 0.65);
 }
 * {
   box-sizing: border-box;
@@ -1082,6 +1448,14 @@ footer,
 }
 .settings-sheet .setting {
   margin-top: 12px;
+}
+.settings-sheet select,
+.settings-sheet input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
 }
 .settings-sheet .setting span {
   font-size: 13px;
